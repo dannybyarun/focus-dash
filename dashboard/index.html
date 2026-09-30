@@ -1,0 +1,964 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dash — live dashboard</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>📊</text></svg>">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>
+  :root{
+    --bg:#0b0f14; --card:#121a23; --line:#223041; --inset:#0e1520; --glow:#10202f;
+    --text:#e6edf3; --dim:#8b98a5; --accent:#7dd3fc; --up:#4ade80; --down:#f87171;
+  }
+  [data-theme="light"]{
+    --bg:#f2f6fb; --card:#ffffff; --line:#d8e0ea; --inset:#e9eff6; --glow:#dbe7f5;
+    --text:#1c2733; --dim:#5c6b7a; --accent:#0369a1; --up:#16a34a; --down:#dc2626;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0}
+  body{
+    font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+    background:radial-gradient(1100px 700px at 85% -10%, var(--glow) 0%, var(--bg) 60%);
+    color:var(--text); min-height:100vh;
+  }
+  header{
+    max-width:1100px; margin:0 auto; padding:20px 16px 6px;
+    display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap;
+  }
+  .brand{display:flex; align-items:center; gap:10px; font-size:22px; font-weight:700}
+  .brand .dot{width:9px;height:9px;border-radius:50%;background:var(--up);box-shadow:0 0 8px var(--up);animation:pulse 2s infinite}
+  @keyframes pulse{50%{opacity:.35}}
+  .clockbox{text-align:center; line-height:1.25}
+  #clock{font-size:26px; font-weight:700; font-variant-numeric:tabular-nums; letter-spacing:1px}
+  #date{font-size:12px; color:var(--dim)}
+  .hdr-actions{display:flex; gap:8px}
+  main{max-width:1100px; margin:0 auto; padding:14px 16px 8px}
+  .grid{display:grid; grid-template-columns:1fr; gap:16px}
+  @media(min-width:760px){ .grid{grid-template-columns:repeat(2,1fr)} .wide{grid-column:span 2} }
+  .card{
+    background:var(--card); border:1px solid var(--line); border-radius:14px;
+    padding:14px 16px; display:flex; flex-direction:column;
+  }
+  .card-head{display:flex; justify-content:space-between; align-items:center; margin-bottom:10px}
+  .card-head h2{margin:0; font-size:14px; letter-spacing:.4px; text-transform:uppercase; color:var(--dim); font-weight:600}
+  .card-foot{margin-top:auto; padding-top:10px; font-size:11px; color:var(--dim)}
+  .mini{
+    background:var(--inset); color:var(--text); border:1px solid var(--line); border-radius:8px;
+    padding:5px 11px; cursor:pointer; font-size:12px;
+  }
+  .mini:hover{border-color:var(--accent); color:var(--accent)}
+  .skeleton{color:var(--dim); font-size:13px; animation:pulse 1.2s infinite}
+  .err{font-size:13px; color:var(--down); display:flex; gap:10px; align-items:center; flex-wrap:wrap}
+  .hint{font-size:11px; color:var(--dim); margin:8px 0 0}
+  .dim{color:var(--dim); font-size:12px}
+  input,select{
+    background:var(--inset); border:1px solid var(--line); color:var(--text);
+    border-radius:8px; padding:7px 9px; font:inherit; font-size:13px;
+  }
+  input:focus,select:focus{outline:none; border-color:var(--accent)}
+  /* weather */
+  .wx-top{display:flex; justify-content:space-between; gap:16px; flex-wrap:wrap}
+  .wx-city{font-size:14px; color:var(--dim); margin-bottom:4px}
+  .wx-temp{font-size:52px; font-weight:800; line-height:1; font-variant-numeric:tabular-nums}
+  .wx-desc{margin-top:6px; font-size:15px}
+  .wx-meta{margin-top:4px; font-size:13px; color:var(--dim)}
+  .wx-form{display:flex; gap:8px}
+  .wx-actions{display:flex; gap:8px; margin-top:8px; flex-wrap:wrap}
+  .chips{display:flex; gap:8px; flex-wrap:wrap; margin-top:10px}
+  .chip{
+    background:var(--inset); border:1px solid var(--line); color:var(--text);
+    border-radius:999px; padding:5px 12px; font-size:12px; cursor:pointer;
+  }
+  .chip:hover{border-color:var(--accent); color:var(--accent)}
+  .wx-days{display:flex; gap:10px; margin-top:16px; flex-wrap:wrap}
+  .wx-day{
+    flex:1; min-width:88px; background:var(--inset); border:1px solid var(--line);
+    border-radius:10px; padding:10px; text-align:center; font-size:13px;
+  }
+  .wx-day .e{font-size:22px; margin:4px 0}
+  .wx-day .hi{font-weight:700}
+  .wx-day .lo{color:var(--dim)}
+  .wx-hours{display:flex; gap:6px; overflow-x:auto; margin-top:14px; padding-bottom:4px}
+  .wx-h{min-width:54px; background:var(--inset); border:1px solid var(--line); border-radius:10px;
+    padding:8px 4px; text-align:center; font-size:12px; flex:0 0 auto}
+  .wx-h .hh{color:var(--dim); font-size:10.5px}
+  .wx-h .he{font-size:16px; margin:3px 0}
+  .wx-h .ht{font-weight:700}
+  .wx-h .hp{color:var(--dim); font-size:10px}
+  /* rows */
+  .row{display:flex; align-items:baseline; justify-content:space-between; gap:8px; padding:9px 0; border-bottom:1px solid var(--line)}
+  .row:last-child{border-bottom:0}
+  .sym{color:var(--dim); font-size:12px; margin-left:8px}
+  .price{font-variant-numeric:tabular-nums; font-weight:600}
+  .chg{font-size:13px; font-variant-numeric:tabular-nums; min-width:86px; text-align:right}
+  .up{color:var(--up)} .down{color:var(--down)}
+  .conv{display:flex; align-items:center; gap:8px; margin-bottom:12px; flex-wrap:wrap}
+  .conv input{width:90px}
+  .conv b{font-size:15px; font-variant-numeric:tabular-nums}
+  .rates-grid{display:grid; grid-template-columns:repeat(auto-fill,minmax(100px,1fr)); gap:8px}
+  .rate{background:var(--inset); border:1px solid var(--line); border-radius:10px; padding:8px 10px; font-size:13px}
+  .rate span{color:var(--dim); display:block; font-size:11px}
+  .rate b{font-variant-numeric:tabular-nums}
+  /* links */
+  a.hn{display:block; text-decoration:none; color:var(--text); padding:9px 0; border-bottom:1px solid var(--line)}
+  a.hn:last-child{border-bottom:0}
+  a.hn:hover .hn-title{color:var(--accent)}
+  .hn-title{font-size:13.5px; font-weight:600; line-height:1.35}
+  .hn-meta{font-size:12px; color:var(--dim); margin-top:3px}
+  /* history / holidays */
+  .evt{padding:9px 0; border-bottom:1px solid var(--line); font-size:13.5px; line-height:1.45}
+  .evt:last-child{border-bottom:0}
+  .evt b{color:var(--accent); margin-right:8px; font-variant-numeric:tabular-nums}
+  .evt a{color:var(--dim); font-size:11px; text-decoration:none; margin-left:6px}
+  .evt a:hover{color:var(--accent)}
+  /* iss */
+  .iss{display:flex; gap:14px; align-items:center; flex-wrap:wrap}
+  .iss-big{font-size:40px}
+  .iss-line{font-size:13.5px; padding:2px 0; font-variant-numeric:tabular-nums}
+  .iss-map{height:240px; border-radius:10px; border:1px solid var(--line); margin-top:10px}
+  .iss-map img{filter:saturate(.7) brightness(.88) contrast(1.05)}
+  [data-theme="light"] .iss-map img{filter:none}
+  .iss-icon{font-size:22px; filter:drop-shadow(0 0 6px #7dd3fc)}
+  /* launches / quakes */
+  .ln{display:flex; justify-content:space-between; gap:10px; padding:9px 0; border-bottom:1px solid var(--line)}
+  .ln:last-child{border-bottom:0}
+  .ln-name{font-size:13.5px; font-weight:600}
+  .ln-sub{font-size:12px; color:var(--dim); margin-top:2px}
+  .ln-cd{font-variant-numeric:tabular-nums; font-size:12.5px; color:var(--accent); white-space:nowrap; text-align:right}
+  .qk{display:flex; gap:10px; padding:8px 0; border-bottom:1px solid var(--line); align-items:flex-start}
+  .qk:last-child{border-bottom:0}
+  .qk-mag{min-width:46px; height:30px; border-radius:8px; display:flex; align-items:center; justify-content:center; font-weight:800; font-size:13px; color:#0b0f14}
+  .qk-place{font-size:13px; line-height:1.35}
+  .qk-meta{font-size:11px; color:var(--dim); margin-top:2px}
+  /* aq / fng */
+  .aq-top{display:flex; align-items:center; gap:14px}
+  .aq-num{font-size:44px; font-weight:800; font-variant-numeric:tabular-nums}
+  .fng-num{font-size:44px; font-weight:800; font-variant-numeric:tabular-nums}
+  .fng-bar{height:10px; border-radius:6px; background:linear-gradient(90deg,#f87171,#fbbf24,#4ade80); position:relative; margin:12px 0 4px}
+  .fng-marker{position:absolute; top:-4px; width:4px; height:18px; background:#fff; border-radius:2px; transform:translateX(-2px); box-shadow:0 0 4px rgba(0,0,0,.5)}
+  .fng-ends{display:flex; justify-content:space-between; font-size:10.5px; color:var(--dim)}
+  /* clocks */
+  .clock-grid{display:grid; grid-template-columns:repeat(3,1fr); gap:8px}
+  .clock-tile{background:var(--inset); border:1px solid var(--line); border-radius:10px; padding:10px 8px; text-align:center; font-size:12px}
+  .clock-tile .sun{font-size:14px}
+  .clk{display:block; margin-top:4px; font-variant-numeric:tabular-nums; font-size:15px}
+  /* github */
+  .gh-head{display:flex; gap:10px; align-items:center; margin:12px 0 4px}
+  .gh-ava{width:40px; height:40px; border-radius:50%; border:1px solid var(--line)}
+  .gh-link{color:var(--text); text-decoration:none}
+  .gh-link:hover{color:var(--accent)}
+  /* trivia / fun / text cards */
+  .q{font-size:14.5px; line-height:1.5; margin-top:6px}
+  .opts{display:grid; gap:8px; margin-top:10px}
+  .opt{text-align:left; background:var(--inset); border:1px solid var(--line); color:var(--text); border-radius:8px; padding:8px 12px; font:inherit; font-size:13.5px; cursor:pointer}
+  .opt:hover{border-color:var(--accent)}
+  .opts.done .opt{pointer-events:none}
+  .opt.correct{border-color:var(--up); color:var(--up)}
+  .opt.wrong{border-color:var(--down); color:var(--down)}
+  .joke-text{font-size:14.5px; line-height:1.55}
+  .joke-del{color:var(--accent); margin-top:8px}
+  .fun-img{width:100%; height:170px; object-fit:cover; border-radius:10px; border:1px solid var(--line); margin-bottom:10px}
+  .word-big{font-size:28px; font-weight:800}
+  .word-pos{display:inline-block; font-size:11px; color:var(--accent); border:1px solid var(--line); border-radius:999px; padding:2px 10px; margin-left:10px; vertical-align:middle}
+  .word-def{font-size:13.5px; line-height:1.5; margin-top:8px}
+  .word-ex{color:var(--dim); font-style:italic; font-size:12.5px; margin-top:4px}
+  footer.page{max-width:1100px; margin:0 auto; padding:10px 16px 28px; font-size:11px; color:var(--dim)}
+  footer.page a{color:var(--dim)}
+</style>
+</head>
+<body>
+<header>
+  <div class="brand"><span class="dot"></span> Dash</div>
+  <div class="clockbox"><div id="clock">--:--:--</div><div id="date"></div></div>
+  <div class="hdr-actions">
+    <button class="mini" id="theme-btn">☀️ Light</button>
+    <button class="mini" id="refresh-all">↻ Refresh all</button>
+  </div>
+</header>
+
+<main>
+  <div class="grid">
+
+    <section class="card wide" id="card-weather">
+      <div class="card-head"><h2>🌤️ Weather</h2><button class="mini" data-refresh="weather">↻</button></div>
+      <div class="body" id="body-weather"><div class="skeleton">Loading…</div></div>
+      <div class="card-foot"><span id="foot-weather"></span> · open-meteo.com</div>
+    </section>
+
+    <section class="card" id="card-aq">
+      <div class="card-head"><h2>😷 Air quality</h2><button class="mini" data-refresh="aq">↻</button></div>
+      <div class="body" id="body-aq"><div class="skeleton">Loading…</div></div>
+      <div class="card-foot"><span id="foot-aq"></span> · open-meteo.com</div>
+    </section>
+
+    <section class="card" id="card-clocks">
+      <div class="card-head"><h2>🕐 World clocks</h2></div>
+      <div class="body" id="body-clocks"><div class="skeleton">Loading…</div></div>
+      <div class="card-foot"><span id="foot-clocks"></span> · your device, zero network</div>
+    </section>
+
+    <section class="card" id="card-crypto">
+      <div class="card-head"><h2>₿ Crypto</h2><button class="mini" data-refresh="crypto">↻</button></div>
+      <div class="body" id="body-crypto"><div class="skeleton">Loading…</div></div>
+      <div class="card-foot"><span id="foot-crypto"></span> · coingecko.com</div>
+    </section>
+
+    <section class="card" id="card-fng">
+      <div class="card-head"><h2>😱 Crypto fear &amp; greed</h2><button class="mini" data-refresh="fng">↻</button></div>
+      <div class="body" id="body-fng"><div class="skeleton">Loading…</div></div>
+      <div class="card-foot"><span id="foot-fng"></span> · alternative.me</div>
+    </section>
+
+    <section class="card" id="card-rates">
+      <div class="card-head"><h2>💱 Exchange rates (USD base)</h2><button class="mini" data-refresh="rates">↻</button></div>
+      <div class="body" id="body-rates"><div class="skeleton">Loading…</div></div>
+      <div class="card-foot"><span id="foot-rates"></span> · exchangerate-api.com</div>
+    </section>
+
+    <section class="card" id="card-launches">
+      <div class="card-head"><h2>🚀 Rocket launches</h2><button class="mini" data-refresh="launches">↻</button></div>
+      <div class="body" id="body-launches"><div class="skeleton">Loading…</div></div>
+      <div class="card-foot"><span id="foot-launches"></span> · thespacedevs.com</div>
+    </section>
+
+    <section class="card" id="card-quakes">
+      <div class="card-head"><h2>🌍 Earthquakes (24 h)</h2><button class="mini" data-refresh="quakes">↻</button></div>
+      <div class="body" id="body-quakes"><div class="skeleton">Loading…</div></div>
+      <div class="card-foot"><span id="foot-quakes"></span> · earthquake.usgs.gov</div>
+    </section>
+
+    <section class="card wide" id="card-iss">
+      <div class="card-head"><h2>🛰️ ISS live position</h2><button class="mini" data-refresh="iss">↻</button></div>
+      <div class="body" id="body-iss"><div class="skeleton">Loading…</div></div>
+      <div class="card-foot"><span id="foot-iss"></span> · wheretheiss.at · map © OpenStreetMap contributors</div>
+    </section>
+
+    <section class="card" id="card-news">
+      <div class="card-head"><h2>📰 Hacker News</h2><button class="mini" data-refresh="news">↻</button></div>
+      <div class="body" id="body-news"><div class="skeleton">Loading…</div></div>
+      <div class="card-foot"><span id="foot-news"></span> · news.ycombinator.com</div>
+    </section>
+
+    <section class="card" id="card-devto">
+      <div class="card-head"><h2>💻 dev.to top posts</h2><button class="mini" data-refresh="devto">↻</button></div>
+      <div class="body" id="body-devto"><div class="skeleton">Loading…</div></div>
+      <div class="card-foot"><span id="foot-devto"></span> · dev.to</div>
+    </section>
+
+    <section class="card" id="card-history">
+      <div class="card-head"><h2>📜 On this day</h2><button class="mini" data-refresh="history">↻</button></div>
+      <div class="body" id="body-history"><div class="skeleton">Loading…</div></div>
+      <div class="card-foot"><span id="foot-history"></span> · wikipedia.org</div>
+    </section>
+
+    <section class="card" id="card-holidays">
+      <div class="card-head"><h2>🎉 Next public holidays</h2><button class="mini" data-refresh="holidays">↻</button></div>
+      <div class="body" id="body-holidays"><div class="skeleton">Loading…</div></div>
+      <div class="card-foot"><span id="foot-holidays"></span> · date.nager.at</div>
+    </section>
+
+    <section class="card" id="card-github">
+      <div class="card-head"><h2>🐙 GitHub profile</h2><button class="mini" data-refresh="github">↻</button></div>
+      <div class="body" id="body-github"><div class="skeleton">Loading…</div></div>
+      <div class="card-foot"><span id="foot-github"></span> · api.github.com</div>
+    </section>
+
+    <section class="card" id="card-trivia">
+      <div class="card-head"><h2>❓ Trivia</h2><button class="mini" data-refresh="trivia">↻</button></div>
+      <div class="body" id="body-trivia"><div class="skeleton">Loading…</div></div>
+      <div class="card-foot"><span id="foot-trivia"></span> · opentdb.com</div>
+    </section>
+
+    <section class="card" id="card-quote">
+      <div class="card-head"><h2>💬 Quote of the moment</h2><button class="mini" data-refresh="quote">↻</button></div>
+      <div class="body" id="body-quote"><div class="skeleton">Loading…</div></div>
+      <div class="card-foot"><span id="foot-quote"></span> · dummyjson.com</div>
+    </section>
+
+    <section class="card" id="card-advice">
+      <div class="card-head"><h2>🧠 Advice</h2><button class="mini" data-refresh="advice">↻</button></div>
+      <div class="body" id="body-advice"><div class="skeleton">Loading…</div></div>
+      <div class="card-foot"><span id="foot-advice"></span> · adviceslip.com</div>
+    </section>
+
+    <section class="card" id="card-joke">
+      <div class="card-head"><h2>😂 Joke</h2><button class="mini" data-refresh="joke">↻</button></div>
+      <div class="body" id="body-joke"><div class="skeleton">Loading…</div></div>
+      <div class="card-foot"><span id="foot-joke"></span> · jokeapi.dev</div>
+    </section>
+
+    <section class="card" id="card-fun">
+      <div class="card-head"><h2>🐶 Animal break</h2><button class="mini" data-refresh="fun">↻</button></div>
+      <div class="body" id="body-fun"><div class="skeleton">Loading…</div></div>
+      <div class="card-foot"><span id="foot-fun"></span> · dog.ceo + catfact.ninja</div>
+    </section>
+
+    <section class="card" id="card-word">
+      <div class="card-head"><h2>📖 Word of the day</h2><button class="mini" data-refresh="word">↻</button></div>
+      <div class="body" id="body-word"><div class="skeleton">Loading…</div></div>
+      <div class="card-foot"><span id="foot-word"></span> · wiktionary.org</div>
+    </section>
+
+  </div>
+</main>
+
+<footer class="page">
+  Live data fetched client-side from free public APIs · no keys, no backend, no setup · your city &amp; theme are saved in localStorage · <a href="/">focus app ↗</a>
+</footer>
+
+<noscript><p style="text-align:center">This dashboard needs JavaScript to fetch live data.</p></noscript>
+
+<script>
+"use strict";
+const $ = (id) => document.getElementById(id);
+
+/* ---------- helpers ---------- */
+async function fetchJSON(url, ms = 9000) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), ms);
+  try {
+    const res = await fetch(url, { signal: ctrl.signal });
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    return await res.json();
+  } finally {
+    clearTimeout(timer);
+  }
+}
+function esc(s) {
+  return String(s).replace(/[&<>"']/g, (m) =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[m]));
+}
+function truncate(s, n) { s = String(s); return s.length > n ? s.slice(0, n - 1) + "…" : s; }
+function deent(s) { const t = document.createElement("textarea"); t.innerHTML = s; return t.value; }
+function stripHTML(s) { return String(s).replace(/<[^>]*>/g, ""); }
+function shuffle(a) {
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = (Math.random() * (i + 1)) | 0;
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+function ago(t) {
+  const s = Math.max(0, (Date.now() - t) / 1e3);
+  if (s < 60) return Math.round(s) + "s ago";
+  if (s < 3600) return Math.round(s / 60) + "m ago";
+  if (s < 86400) return Math.round(s / 3600) + "h ago";
+  return Math.round(s / 86400) + "d ago";
+}
+
+/* ---------- card manager ---------- */
+const cards = {
+  weather:  { every: 10 * 60e3, load: loadWeather },
+  aq:       { every: 15 * 60e3, load: loadAQ },
+  clocks:   { every: 60e3,      load: loadClocks },
+  crypto:   { every: 60e3,      load: loadCrypto },
+  fng:      { every: 15 * 60e3, load: loadFNG },
+  rates:    { every: 15 * 60e3, load: loadRates },
+  launches: { every: 10 * 60e3, load: loadLaunches },
+  quakes:   { every: 10 * 60e3, load: loadQuakes },
+  iss:      { every: 10e3,      load: loadISS, onfail: resetISS },
+  news:     { every: 5 * 60e3,  load: loadNews },
+  devto:    { every: 15 * 60e3, load: loadDevTo },
+  history:  { every: 60 * 60e3, load: loadHistory },
+  holidays: { every: 60 * 60e3, load: loadHolidays },
+  github:   { every: 15 * 60e3, load: loadGitHub },
+  trivia:   { every: 6 * 60e3,  load: loadTrivia },
+  quote:    { every: 6 * 60e3,  load: loadQuote },
+  advice:   { every: 6 * 60e3,  load: loadAdvice },
+  joke:     { every: 6 * 60e3,  load: loadJoke },
+  fun:      { every: 10 * 60e3, load: loadFun },
+  word:     { every: 6 * 60e3,  load: loadWord },
+};
+const updated = {};
+const setBody = (id, html) => { $("body-" + id).innerHTML = html; };
+
+async function run(id) {
+  try {
+    await cards[id].load();
+    updated[id] = Date.now();
+    foot(id);
+  } catch (e) {
+    updated[id] = null;
+    if (cards[id].onfail) cards[id].onfail();
+    setBody(id, `<div class="err"><span>⚠️ ${esc(e.name === "AbortError" ? "timed out" : e.message)}</span>
+      <button class="mini" data-refresh="${id}">Retry</button></div>`);
+  }
+}
+function foot(id) {
+  const el = $("foot-" + id);
+  if (!el) return;
+  if (!updated[id]) { el.textContent = "—"; return; }
+  const s = Math.round((Date.now() - updated[id]) / 1000);
+  el.textContent = s < 60 ? "just now" : s < 3600 ? Math.round(s / 60) + "m ago" : Math.round(s / 3600) + "h ago";
+}
+setInterval(() => Object.keys(cards).forEach(foot), 30e3);
+
+/* ---------- click delegation ---------- */
+document.addEventListener("click", (e) => {
+  const rf = e.target.closest("[data-refresh]");
+  if (rf) { run(rf.dataset.refresh); return; }
+  const chip = e.target.closest("[data-lat]");
+  if (chip) {
+    saveLoc({ lat: chip.dataset.lat, lon: chip.dataset.lon, name: chip.dataset.name });
+    run("weather"); run("aq");
+    return;
+  }
+  const opt = e.target.closest(".opt");
+  if (opt && triviaQ) gradeTrivia(opt);
+});
+document.addEventListener("change", (e) => {
+  if (e.target.id === "holi-sel") {
+    localStorage.setItem("dash.hc", e.target.value);
+    run("holidays");
+  }
+});
+$("refresh-all").addEventListener("click", () => Object.keys(cards).forEach(run));
+
+/* ---------- theme ---------- */
+function applyTheme(t) {
+  document.documentElement.setAttribute("data-theme", t);
+  $("theme-btn").textContent = t === "light" ? "🌙 Dark" : "☀️ Light";
+}
+let theme = localStorage.getItem("dash.theme") || "dark";
+applyTheme(theme);
+$("theme-btn").addEventListener("click", () => {
+  theme = theme === "light" ? "dark" : "light";
+  localStorage.setItem("dash.theme", theme);
+  applyTheme(theme);
+});
+
+/* ---------- clock ---------- */
+function tick() {
+  const n = new Date();
+  $("clock").textContent = n.toLocaleTimeString("en-US", { hour12: false });
+  $("date").textContent = n.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" });
+  updateClocks();
+}
+
+/* ---------- weather ---------- */
+const WMO = {
+  0:["Clear sky","☀️"],1:["Mainly clear","🌤️"],2:["Partly cloudy","⛅"],3:["Overcast","☁️"],
+  45:["Fog","🌫️"],48:["Rime fog","🌫️"],51:["Light drizzle","🌦️"],53:["Drizzle","🌦️"],55:["Heavy drizzle","🌦️"],
+  61:["Light rain","🌦️"],63:["Rain","🌧️"],65:["Heavy rain","🌧️"],66:["Freezing rain","🌧️"],67:["Freezing rain","🌧️"],
+  71:["Light snow","🌨️"],73:["Snow","🌨️"],75:["Heavy snow","❄️"],77:["Snow grains","❄️"],
+  80:["Showers","🌦️"],81:["Showers","🌧️"],82:["Violent showers","⛈️"],85:["Snow showers","🌨️"],86:["Snow showers","❄️"],
+  95:["Thunderstorm","⛈️"],96:["Thunderstorm, hail","⛈️"],99:["Thunderstorm, hail","⛈️"],
+};
+const wmo = (c) => WMO[c] || ["—","🌡️"];
+
+function getLoc() {
+  try { const l = JSON.parse(localStorage.getItem("dash.loc")); if (l && l.lat) return l; } catch (_) {}
+  return { lat: 40.7128, lon: -74.006, name: "New York, United States" };
+}
+function saveLoc(l) { localStorage.setItem("dash.loc", JSON.stringify(l)); }
+
+function moonPhase() {
+  const synodic = 29.53058867;
+  const known = Date.UTC(2000, 0, 6, 18, 14) / 864e5;
+  let p = ((Date.now() / 864e5 - known) % synodic) / synodic;
+  if (p < 0) p += 1;
+  const names = ["🌑 New moon","🌒 Waxing crescent","🌓 First quarter","🌔 Waxing gibbous",
+                 "🌕 Full moon","🌖 Waning gibbous","🌗 Last quarter","🌘 Waning crescent"];
+  const idx = Math.round(p * 8) % 8;
+  return { name: names[idx], lit: Math.round((1 - Math.cos(2 * Math.PI * p)) / 2 * 100) };
+}
+
+async function loadWeather() {
+  const loc = getLoc();
+  const q = "latitude=" + loc.lat + "&longitude=" + loc.lon;
+  const d = await fetchJSON(
+    "https://api.open-meteo.com/v1/forecast?" + q +
+    "&current=temperature_2m,apparent_temperature,relative_humidity_2m,weather_code,wind_speed_10m" +
+    "&hourly=weather_code,temperature_2m,precipitation_probability" +
+    "&daily=weather_code,temperature_2m_max,temperature_2m_min,sunrise,sunset&timezone=auto&forecast_days=6");
+  const cur = d.current, wd = wmo(cur.weather_code);
+  const days = d.daily.time.slice(0, 5).map((t, i) => {
+    const dw = wmo(d.daily.weather_code[i]);
+    return { name: new Date(t + "T12:00").toLocaleDateString("en-US", { weekday: "short" }), de: dw[1], dc: dw[0],
+             hi: Math.round(d.daily.temperature_2m_max[i]), lo: Math.round(d.daily.temperature_2m_min[i]) };
+  });
+  const hh = d.hourly;
+  let idx = hh.time.findIndex((t) => t.slice(0, 13) === (cur.time || "").slice(0, 13));
+  if (idx < 0) idx = 0;
+  const hours = [];
+  for (let i = idx; i < Math.min(idx + 24, hh.time.length); i++) {
+    const w = wmo(hh.weather_code[i]);
+    hours.push({ t: hh.time[i].slice(11, 16), e: w[1], temp: Math.round(hh.temperature_2m[i]),
+                 pp: hh.precipitation_probability == null ? null : hh.precipitation_probability[i] });
+  }
+  const m = moonPhase();
+  const sr = d.daily.sunrise ? d.daily.sunrise[0].slice(11, 16) : null;
+  const ss = d.daily.sunset ? d.daily.sunset[0].slice(11, 16) : null;
+  setBody("weather", `
+    <div class="wx-top">
+      <div>
+        <div class="wx-city">${esc(loc.name)}</div>
+        <div class="wx-temp">${Math.round(cur.temperature_2m)}°</div>
+        <div class="wx-desc">${wd[1]} ${esc(wd[0])} · feels like ${Math.round(cur.apparent_temperature)}°</div>
+        <div class="wx-meta">💧 ${cur.relative_humidity_2m}% humidity &nbsp;·&nbsp; 🌬️ ${Math.round(cur.wind_speed_10m)} km/h</div>
+        ${sr ? `<div class="wx-meta">🌅 ${esc(sr)} &nbsp;·&nbsp; 🌇 ${esc(ss)} &nbsp;·&nbsp; ${esc(m.name)} (${m.lit}% lit)</div>` : ""}
+      </div>
+      <div>
+        <form class="wx-form" id="wx-form">
+          <input id="wx-q" placeholder="Search city…" autocomplete="off" required>
+          <button class="mini" type="submit">Search</button>
+        </form>
+        <div class="wx-actions"><button class="mini" id="wx-geo">📍 Use my location</button></div>
+        <div class="chips" id="wx-results"></div>
+      </div>
+    </div>
+    <div class="wx-hours">${hours.map((h) => `
+      <div class="wx-h"><div class="hh">${esc(h.t)}</div><div class="he">${h.e}</div>
+      <div class="ht">${h.temp}°</div><div class="hp">${h.pp == null ? "" : "💧" + h.pp + "%"}</div></div>`).join("")}</div>
+    <div class="wx-days">${days.map((x) => `
+      <div class="wx-day"><div>${esc(x.name)}</div><div class="e">${x.de}</div>
+      <div class="hi">${x.hi}°</div><div class="lo">${x.lo}°</div></div>`).join("")}</div>`);
+
+  $("wx-form").addEventListener("submit", async (ev) => {
+    ev.preventDefault();
+    const term = $("wx-q").value.trim();
+    if (!term) return;
+    const box = $("wx-results");
+    box.innerHTML = `<span class="dim">searching…</span>`;
+    try {
+      const g = await fetchJSON("https://geocoding-api.open-meteo.com/v1/search?name=" + encodeURIComponent(term) + "&count=5&language=en&format=json");
+      const list = g.results || [];
+      box.innerHTML = list.length
+        ? list.map((r) => `<button class="chip" data-lat="${r.latitude}" data-lon="${r.longitude}"
+              data-name="${esc(r.name)}, ${esc(r.country || "")}">${esc(r.name)}, ${esc(r.country || "")}${r.admin1 ? " · " + esc(r.admin1) : ""}</button>`).join("")
+        : `<span class="dim">no matches for “${esc(term)}”</span>`;
+    } catch (err) { box.innerHTML = `<span class="dim">search failed</span>`; }
+  });
+  $("wx-geo").addEventListener("click", () => {
+    if (!navigator.geolocation) { $("wx-results").innerHTML = `<span class="dim">geolocation unsupported</span>`; return; }
+    $("wx-results").innerHTML = `<span class="dim">locating…</span>`;
+    navigator.geolocation.getCurrentPosition(async (pos) => {
+      const la = pos.coords.latitude, lo = pos.coords.longitude;
+      let name = "My location";
+      try {
+        const r = await fetchJSON("https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=" + la + "&longitude=" + lo + "&localityLanguage=en");
+        name = r.city || r.locality || r.principalSubdivision || name;
+      } catch (_) {}
+      saveLoc({ lat: la, lon: lo, name });
+      run("weather"); run("aq");
+    }, () => { $("wx-results").innerHTML = `<span class="dim">permission denied</span>`; });
+  });
+}
+/* ---------- air quality ---------- */
+function aqiInfo(a) {
+  if (a == null) return ["No data", "#8b98a5"];
+  if (a <= 50)  return ["Good", "#4ade80"];
+  if (a <= 100) return ["Moderate", "#fbbf24"];
+  if (a <= 150) return ["Unhealthy (sensitive)", "#fb923c"];
+  if (a <= 200) return ["Unhealthy", "#f87171"];
+  if (a <= 300) return ["Very unhealthy", "#c084fc"];
+  return ["Hazardous", "#fb7185"];
+}
+async function loadAQ() {
+  const loc = getLoc();
+  const d = await fetchJSON("https://air-quality-api.open-meteo.com/v1/air-quality?latitude=" + loc.lat +
+    "&longitude=" + loc.lon + "&current=us_aqi,pm2_5,pm10");
+  const c = d.current || {};
+  const [label, color] = aqiInfo(c.us_aqi);
+  setBody("aq", `
+    <div class="aq-top">
+      <div class="aq-num" style="color:${color}">${c.us_aqi == null ? "–" : Math.round(c.us_aqi)}</div>
+      <div>
+        <div style="font-weight:700">${esc(label)}</div>
+        <div class="dim">US AQI · ${esc(loc.name.split(",")[0])}</div>
+      </div>
+    </div>
+    <div class="row" style="margin-top:6px"><div>PM2.5</div><div class="price">${c.pm2_5 == null ? "–" : c.pm2_5.toFixed(1)} <span class="sym">µg/m³</span></div></div>
+    <div class="row"><div>PM10</div><div class="price">${c.pm10 == null ? "–" : c.pm10.toFixed(1)} <span class="sym">µg/m³</span></div></div>`);
+}
+
+/* ---------- world clocks ---------- */
+const ZONES = [
+  ["New York", "America/New_York"], ["London", "Europe/London"], ["Berlin", "Europe/Berlin"],
+  ["Dubai", "Asia/Dubai"], ["Tokyo", "Asia/Tokyo"], ["Sydney", "Australia/Sydney"],
+];
+const zoneFmt = {};
+ZONES.forEach(([c, z]) => { zoneFmt[z] = new Intl.DateTimeFormat("en-GB", { hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23", timeZone: z }); });
+async function loadClocks() {
+  setBody("clocks", `<div class="clock-grid" id="clocks-grid">${ZONES.map(([c, z]) => `
+    <div class="clock-tile"><span class="sun" data-sun="${z}"></span><div>${esc(c)}</div>
+    <b class="clk" data-zone="${z}">--:--:--</b></div>`).join("")}</div>`);
+  updateClocks();
+}
+function updateClocks() {
+  const g = $("clocks-grid");
+  if (!g) return;
+  const n = new Date();
+  g.querySelectorAll(".clk").forEach((el) => { el.textContent = zoneFmt[el.dataset.zone].format(n); });
+  g.querySelectorAll("[data-sun]").forEach((el) => {
+    try {
+      const h = parseInt(new Intl.DateTimeFormat("en-GB", { hour: "2-digit", hourCycle: "h23", timeZone: el.dataset.sun }).format(n), 10);
+      el.textContent = (h >= 6 && h < 19) ? "☀️" : "🌙";
+    } catch (_) { el.textContent = ""; }
+  });
+}
+
+/* ---------- crypto ---------- */
+const COINS = [
+  ["bitcoin", "Bitcoin", "BTC"], ["ethereum", "Ethereum", "ETH"], ["solana", "Solana", "SOL"],
+  ["ripple", "XRP", "XRP"], ["cardano", "Cardano", "ADA"], ["dogecoin", "Dogecoin", "DOGE"],
+  ["binancecoin", "BNB", "BNB"], ["chainlink", "Chainlink", "LINK"],
+];
+async function loadCrypto() {
+  const ids = COINS.map((c) => c[0]).join(",");
+  const d = await fetchJSON("https://api.coingecko.com/api/v3/simple/price?ids=" + ids + "&vs_currencies=usd&include_24hr_change=true");
+  setBody("crypto", COINS.map(([id, n, s]) => {
+    const e = d[id];
+    if (!e) return "";
+    const c = e.usd_24h_change == null ? 0 : e.usd_24h_change;
+    return `<div class="row">
+      <div><b>${esc(n)}</b><span class="sym">${s}</span></div>
+      <div class="price">${Number(e.usd).toLocaleString("en-US", { maximumFractionDigits: e.usd >= 100 ? 0 : 2 })}</div>
+      <div class="chg ${c >= 0 ? "up" : "down"}">${c >= 0 ? "▲" : "▼"} ${Math.abs(c).toFixed(2)}%</div>
+    </div>`;
+  }).join(""));
+}
+
+/* ---------- fear & greed ---------- */
+async function loadFNG() {
+  const d = await fetchJSON("https://api.alternative.me/fng/?limit=2");
+  const a = d.data[0], b = d.data[1] || d.data[0];
+  const val = +a.value;
+  const color = val < 25 ? "#f87171" : val < 40 ? "#fb923c" : val < 55 ? "#fbbf24" : val < 70 ? "#a3e635" : "#4ade80";
+  setBody("fng", `
+    <div class="aq-top">
+      <div class="fng-num" style="color:${color}">${val}</div>
+      <div>
+        <div style="font-weight:700">${esc(a.value_classification)}</div>
+        <div class="dim">yesterday: ${esc(b.value)} · ${esc(b.value_classification)}</div>
+      </div>
+    </div>
+    <div class="fng-bar"><div class="fng-marker" style="left:${val}%"></div></div>
+    <div class="fng-ends"><span>😱 Extreme fear</span><span>🤑 Extreme greed</span></div>`);
+}
+
+/* ---------- exchange rates ---------- */
+async function loadRates() {
+  const d = await fetchJSON("https://open.er-api.com/v6/latest/USD");
+  const list = ["EUR", "GBP", "JPY", "INR", "CNY", "CAD", "AUD", "CHF"]
+    .map((c) => [c, d.rates[c]]).filter((x) => x[1]);
+  setBody("rates", `
+    <div class="conv">
+      <span>$</span>
+      <input id="usd-amt" type="number" value="100" min="0" step="any">
+      <select id="conv-cur">${list.map(([c]) => `<option>${c}</option>`).join("")}</select>
+      <span>=</span><b id="conv-out"></b>
+    </div>
+    <div class="rates-grid">${list.map(([c, v]) =>
+      `<div class="rate"><span>1 USD →</span><b>${v.toFixed(v < 10 ? 4 : 2)} ${c}</b></div>`).join("")}</div>`);
+  const conv = () => {
+    const amt = parseFloat($("usd-amt").value) || 0;
+    const cur = $("conv-cur").value;
+    const rate = list.find((x) => x[0] === cur)[1];
+    $("conv-out").textContent = Number(amt * rate).toLocaleString("en-US", { maximumFractionDigits: rate < 10 ? 2 : 0 }) + " " + cur;
+  };
+  $("usd-amt").addEventListener("input", conv);
+  $("conv-cur").addEventListener("change", conv);
+  conv();
+}
+
+/* ---------- rocket launches ---------- */
+function countdownFmt(ms) {
+  if (ms <= 0) return "🚀 LIFTOFF!";
+  const s = Math.floor(ms / 1e3);
+  const d = Math.floor(s / 86400), h = Math.floor((s % 86400) / 3600), m = Math.floor((s % 3600) / 60);
+  return (d ? d + "d " : "") + String(h).padStart(2, "0") + ":" + String(m).padStart(2, "0");
+}
+async function loadLaunches() {
+  const d = await fetchJSON("https://ll.thespacedevs.com/2.2.0/launch/upcoming/?limit=4&hide_recent_previous=true");
+  const rows = (d.results || []).map((l) => {
+    const provider = l.launch_service_provider ? l.launch_service_provider.name : "";
+    const pad = l.pad && l.pad.location ? l.pad.location.name : "";
+    const go = l.status && l.status.abbrev === "Go";
+    return `<div class="ln">
+      <div>
+        <div class="ln-name">${esc(l.name)}</div>
+        <div class="ln-sub">${esc(provider)}${pad ? " · " + esc(pad) : ""}${go ? " · ✅ go for launch" : ""}</div>
+      </div>
+      <div class="ln-cd">${esc(countdownFmt(new Date(l.net) - Date.now()))}<div class="dim">${esc(new Date(l.net).toLocaleString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false }))}</div></div>
+    </div>`;
+  }).join("");
+  setBody("launches", rows || `<p class="dim">No upcoming launches found.</p>`);
+}
+
+/* ---------- earthquakes ---------- */
+function magColor(m) { return m >= 6 ? "#f87171" : m >= 5 ? "#fb923c" : m >= 4 ? "#fbbf24" : "#a3e635"; }
+async function loadQuakes() {
+  const d = await fetchJSON("https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_day.geojson");
+  let feats = d.features || [];
+  let qs = feats.filter((f) => f.properties.mag >= 4).sort((a, b) => b.properties.mag - a.properties.mag).slice(0, 6);
+  if (qs.length < 3) {
+    qs = feats.filter((f) => f.properties.mag != null).sort((a, b) => b.properties.mag - a.properties.mag).slice(0, 6);
+  }
+  if (!qs.length) { setBody("quakes", `<p class="dim">No earthquakes recorded in the last 24 h. Nice.</p>`); return; }
+  setBody("quakes", qs.map((f) => {
+    const p = f.properties;
+    const depth = f.geometry && f.geometry.coordinates ? f.geometry.coordinates[2] : null;
+    return `<div class="qk">
+      <div class="qk-mag" style="background:${magColor(p.mag || 0)}">${p.mag != null ? p.mag.toFixed(1) : "–"}</div>
+      <div>
+        <div class="qk-place">${esc(p.place || "unknown location")}</div>
+        <div class="qk-meta">${esc(ago(p.time))}${depth != null ? " · " + Math.round(depth) + " km deep" : ""} · <a href="${esc(p.url)}" target="_blank" rel="noopener" style="color:inherit">details ↗</a></div>
+      </div>
+    </div>`;
+  }).join(""));
+}
+/* ---------- ISS + map ---------- */
+let issInit = false, issMap = null, issMarker = null, issTrail = null, issPts = [], issFollow = true;
+function resetISS() { issInit = false; issMap = null; issMarker = null; issTrail = null; issPts = []; }
+async function loadISS() {
+  const d = await fetchJSON("https://api.wheretheiss.at/v1/satellites/25544");
+  if (!issInit) {
+    issInit = true;
+    setBody("iss", `
+      <div class="iss">
+        <div class="iss-big">🛰️</div>
+        <div>
+          <div class="iss-line" id="iss-pos">…</div>
+          <div class="iss-line" id="iss-alt">…</div>
+          <div class="iss-line" id="iss-vis">…</div>
+        </div>
+        <label class="dim" style="margin-left:auto;display:flex;gap:6px;align-items:center;cursor:pointer">
+          <input type="checkbox" id="iss-follow" checked> follow</label>
+      </div>
+      <div id="iss-map" class="iss-map"></div>
+      <p class="hint">Live position, refreshes every 10 s. The line is the ISS's recent path.</p>`);
+    $("iss-follow").addEventListener("change", (e) => { issFollow = e.target.checked; });
+    if (typeof L !== "undefined") {
+      issMap = L.map("iss-map", { zoomControl: false, worldCopyJump: true, attributionControl: true }).setView([d.latitude, d.longitude], 3);
+      L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19, attribution: "© OpenStreetMap contributors" }).addTo(issMap);
+      issTrail = L.polyline([], { color: "#7dd3fc", weight: 2, opacity: 0.7 }).addTo(issMap);
+      issMarker = L.marker([d.latitude, d.longitude], {
+        icon: L.divIcon({ className: "iss-icon", html: "🛰️", iconSize: [28, 28] }),
+      }).addTo(issMap);
+    } else {
+      $("iss-map").innerHTML = `<div class="dim" style="padding:12px">Map unavailable (CDN blocked) — coordinates above are still live.</div>`;
+    }
+  }
+  $("iss-pos").textContent = "Lat " + d.latitude.toFixed(2) + "° · Lon " + d.longitude.toFixed(2) + "°";
+  $("iss-alt").textContent = "Alt " + Math.round(d.altitude) + " km · " + Math.round(d.velocity).toLocaleString("en-US") + " km/h";
+  $("iss-vis").textContent = (d.visibility === "daylight" ? "☀️ in daylight" : "🌑 in Earth's shadow") + " · footprint ~" + Math.round(d.footprint) + " km";
+  issPts.push([d.latitude, d.longitude]);
+  if (issPts.length > 40) issPts.shift();
+  if (issTrail) issTrail.setLatLngs(issPts);
+  if (issMarker) issMarker.setLatLng([d.latitude, d.longitude]);
+  if (issFollow && issMap) issMap.panTo([d.latitude, d.longitude], { animate: false });
+}
+
+/* ---------- hacker news ---------- */
+async function loadNews() {
+  const ids = (await fetchJSON("https://hacker-news.firebaseio.com/v0/topstories.json")).slice(0, 6);
+  const items = await Promise.all(ids.map((i) => fetchJSON("https://hacker-news.firebaseio.com/v0/item/" + i + ".json")));
+  setBody("news", items.filter(Boolean).map((it) => {
+    let url = "https://news.ycombinator.com/item?id=" + it.id, host = "news.ycombinator.com";
+    if (it.url) { url = it.url; try { host = new URL(url).hostname.replace(/^www\./, ""); } catch (_) {} }
+    return `<a class="hn" href="${esc(url)}" target="_blank" rel="noopener">
+      <div class="hn-title">${esc(it.title)}</div>
+      <div class="hn-meta">${esc(host)} · ▲ ${it.score} · 💬 ${it.descendants == null ? 0 : it.descendants}</div></a>`;
+  }).join(""));
+}
+
+/* ---------- dev.to ---------- */
+async function loadDevTo() {
+  const arts = await fetchJSON("https://dev.to/api/articles?per_page=5&top=1");
+  setBody("devto", (arts || []).slice(0, 5).map((a) => `
+    <a class="hn" href="${esc(a.url)}" target="_blank" rel="noopener">
+      <div class="hn-title">${esc(truncate(a.title, 95))}</div>
+      <div class="hn-meta">@${esc(a.user && a.user.username ? a.user.username : "anon")} · ❤️ ${a.positive_reactions_count || 0} · 💬 ${a.comments_count || 0}</div>
+    </a>`).join(""));
+}
+
+/* ---------- on this day ---------- */
+async function loadHistory() {
+  const n = new Date();
+  const mm = String(n.getMonth() + 1).padStart(2, "0"), dd = String(n.getDate()).padStart(2, "0");
+  const d = await fetchJSON("https://api.wikimedia.org/feed/v1/wikipedia/en/onthisday/selected/" + mm + "/" + dd);
+  const events = d.selected || [];
+  if (!events.length) { setBody("history", `<p class="dim">No events found for today.</p>`); return; }
+  const step = Math.max(1, Math.floor(events.length / 3));
+  const picks = [events[0], events[Math.min(step, events.length - 1)], events[events.length - 1]]
+    .filter((v, i, a) => v && a.indexOf(v) === i);
+  setBody("history", picks.map((ev) => {
+    const link = ev.pages && ev.pages[0] && ev.pages[0].content_urls ? ev.pages[0].content_urls.desktop.page : null;
+    return `<div class="evt"><b>${ev.year}</b>${esc(truncate(ev.text, 150))}${link ? `<a href="${esc(link)}" target="_blank" rel="noopener">wikipedia ↗</a>` : ""}</div>`;
+  }).join(""));
+}
+
+/* ---------- public holidays ---------- */
+const COUNTRIES = [
+  ["US", "United States"], ["GB", "United Kingdom"], ["DE", "Germany"], ["FR", "France"],
+  ["ES", "Spain"], ["IT", "Italy"], ["NL", "Netherlands"], ["IN", "India"], ["CA", "Canada"],
+  ["AU", "Australia"], ["BR", "Brazil"], ["JP", "Japan"],
+];
+async function loadHolidays() {
+  let cc = "US";
+  try { cc = localStorage.getItem("dash.hc") || "US"; } catch (_) {}
+  if (!COUNTRIES.some((c) => c[0] === cc)) cc = "US";
+  const d = await fetchJSON("https://date.nager.at/api/v3/NextPublicHolidays/" + cc);
+  const list = (d || []).slice(0, 5);
+  setBody("holidays", `
+    <select id="holi-sel" style="margin-bottom:8px">${COUNTRIES.map(([c, n]) =>
+      `<option value="${c}"${c === cc ? " selected" : ""}>${esc(n)}</option>`).join("")}</select>
+    ${list.length ? list.map((h) => {
+      const when = new Date(h.date + "T00:00");
+      const days = Math.max(0, Math.ceil((when - new Date()) / 864e5));
+      const alt = h.localName && h.localName !== h.name ? ` · ${esc(h.localName)}` : "";
+      return `<div class="evt"><b>${esc(when.toLocaleDateString("en-US", { month: "short", day: "numeric" }))}</b>${esc(h.name)}${alt}<span class="dim" style="margin-left:6px">in ${days} day${days === 1 ? "" : "s"}</span></div>`;
+    }).join("") : `<p class="dim">No upcoming holidays found.</p>`}`);
+}
+
+/* ---------- github ---------- */
+let ghUser = "torvalds";
+try { ghUser = localStorage.getItem("dash.gh") || "torvalds"; } catch (_) {}
+async function loadGitHub() {
+  let user;
+  try {
+    user = await fetchJSON("https://api.github.com/users/" + encodeURIComponent(ghUser));
+  } catch (e) {
+    throw new Error("GitHub user “" + ghUser + "” not found");
+  }
+  const repos = await fetchJSON("https://api.github.com/users/" + encodeURIComponent(ghUser) + "/repos?per_page=100&sort=updated");
+  const totalStars = repos.reduce((s, r) => s + (r.stargazers_count || 0), 0);
+  const top = repos.slice().sort((a, b) => b.stargazers_count - a.stargazers_count).slice(0, 3);
+  setBody("github", `
+    <form class="wx-form" id="gh-form">
+      <input id="gh-input" value="${esc(ghUser)}" placeholder="GitHub username" autocomplete="off">
+      <button class="mini" type="submit">Load</button>
+    </form>
+    <div class="gh-head">
+      <img class="gh-ava" src="${esc(user.avatar_url)}" alt="" loading="lazy">
+      <div><b>${esc(user.name || user.login)}</b><div class="dim">@${esc(user.login)}</div></div>
+    </div>
+    <div class="row"><div>👥 Followers</div><div class="price">${(user.followers || 0).toLocaleString("en-US")}</div></div>
+    <div class="row"><div>📦 Public repos</div><div class="price">${(user.public_repos || 0).toLocaleString("en-US")}</div></div>
+    <div class="row"><div>⭐ Total stars</div><div class="price">${totalStars.toLocaleString("en-US")}</div></div>
+    ${top.length ? `<div class="hint" style="margin-top:10px">Top repos by ⭐</div>` + top.map((r) => `
+      <div class="row"><div>📁 <a class="gh-link" href="${esc(r.html_url)}" target="_blank" rel="noopener">${esc(r.name)}</a></div>
+      <div class="price">★ ${r.stargazers_count.toLocaleString("en-US")}</div></div>`).join("") : ""}`);
+  $("gh-form").addEventListener("submit", (ev) => {
+    ev.preventDefault();
+    const v = $("gh-input").value.trim();
+    if (!v) return;
+    ghUser = v;
+    localStorage.setItem("dash.gh", v);
+    run("github");
+  });
+}
+/* ---------- trivia ---------- */
+let triviaQ = null;
+async function loadTrivia() {
+  const d = await fetchJSON("https://opentdb.com/api.php?amount=1&type=multiple");
+  if (!d.results || !d.results.length) throw new Error("no question returned");
+  const q = d.results[0];
+  const answer = deent(q.correct_answer);
+  triviaQ = { answer };
+  const opts = shuffle(q.incorrect_answers.map(deent).concat([answer]));
+  setBody("trivia", `
+    <div class="dim">${esc(deent(q.category))} · ${esc(q.difficulty)}</div>
+    <div class="q">${esc(deent(q.question))}</div>
+    <div class="opts">${opts.map((o) => `<button class="opt" data-o="${esc(o)}">${esc(o)}</button>`).join("")}</div>
+    <div id="trivia-res"></div>
+    <div class="wx-actions"><button class="mini" data-refresh="trivia">Next question</button></div>`);
+}
+function gradeTrivia(opt) {
+  const box = opt.closest(".opts");
+  if (!box || box.classList.contains("done")) return;
+  box.classList.add("done");
+  const chosen = opt.dataset.o;
+  box.querySelectorAll(".opt").forEach((b) => {
+    if (b.dataset.o === triviaQ.answer) b.classList.add("correct");
+    else if (b === opt) b.classList.add("wrong");
+  });
+  const res = $("trivia-res");
+  if (res) res.innerHTML = chosen === triviaQ.answer
+    ? `<div class="hint up" style="font-size:13px">✅ Correct!</div>`
+    : `<div class="hint down" style="font-size:13px">❌ Nope — the right answer is highlighted.</div>`;
+}
+
+/* ---------- quote ---------- */
+async function loadQuote() {
+  const d = await fetchJSON("https://dummyjson.com/quotes/random");
+  setBody("quote", `
+    <div class="joke-text">“${esc(d.quote)}”</div>
+    <div class="dim" style="margin-top:8px">— ${esc(d.author)}</div>`);
+}
+
+/* ---------- advice ---------- */
+async function loadAdvice() {
+  const d = await fetchJSON("https://api.adviceslip.com/advice");
+  const a = d.slip && d.slip.advice;
+  if (!a) throw new Error("no advice returned");
+  setBody("advice", `<div class="joke-text">💡 ${esc(a)}</div>`);
+}
+
+/* ---------- joke ---------- */
+async function loadJoke() {
+  const d = await fetchJSON("https://v2.jokeapi.dev/joke/Any?safe-mode");
+  if (d.error) throw new Error(d.message || "joke unavailable");
+  setBody("joke", d.type === "single"
+    ? `<div class="joke-text">${esc(d.joke)}</div>`
+    : `<div class="joke-text">${esc(d.setup)}</div><div class="joke-del">${esc(d.delivery)}</div>`);
+}
+
+/* ---------- animal break ---------- */
+function capWords(s) { return s.replace(/(^|\s|-)\w/g, (m) => m.toUpperCase()).replace(/-/g, " "); }
+async function loadFun() {
+  const [dog, cat] = await Promise.all([
+    fetchJSON("https://dog.ceo/api/breeds/image/random"),
+    fetchJSON("https://catfact.ninja/fact"),
+  ]);
+  const breed = (dog.message.split("/breeds/")[1] || "").split("/")[0];
+  setBody("fun", `
+    <img class="fun-img" src="${esc(dog.message)}" alt="random dog" loading="lazy" onerror="this.style.display='none'">
+    ${breed ? `<div class="dim" style="margin-bottom:8px">🐶 breed: <b style="color:var(--text)">${esc(capWords(breed))}</b></div>` : ""}
+    <div class="joke-text">🐱 ${esc(cat.fact)}</div>`);
+}
+
+/* ---------- word of the day ---------- */
+const WORDS = [
+  "serendipity","ephemeral","eloquent","luminous","resilience","wanderlust","mellifluous",
+  "ineffable","epiphany","nostalgia","ethereal","aurora","zenith","halcyon","quintessential",
+  "solitude","reverie","susurrus","ebullient","denouement","diaphanous","effervescent",
+  "kaleidoscope","whimsical","tranquil","vibrant","sonorous","gossamer","limerence","petrichor",
+];
+let wordIdx = (Math.random() * WORDS.length) | 0;
+async function loadWord() {
+  let def = null;
+  for (let tries = 0; tries < 4 && !def; tries++) {
+    try {
+      const d = await fetchJSON("https://en.wiktionary.org/api/rest_v1/page/definition/" + encodeURIComponent(WORDS[wordIdx]));
+      const en = (d && d.en) || [];
+      if (en.length && en[0].definitions && en[0].definitions.length) def = en[0];
+      else { wordIdx = (wordIdx + 1) % WORDS.length; }
+    } catch (e) {
+      if (String(e.message).includes("404")) wordIdx = (wordIdx + 1) % WORDS.length;
+      else throw e;
+    }
+  }
+  if (!def) throw new Error("no definition found");
+  const defs = def.definitions.slice(0, 2).map((x) => stripHTML(x.definition));
+  const example = def.definitions.find((x) => stripHTML(x.example || ""));
+  setBody("word", `
+    <div><span class="word-big">${esc(WORDS[wordIdx])}</span>${def.partOfSpeech ? `<span class="word-pos">${esc(def.partOfSpeech)}</span>` : ""}</div>
+    ${defs.map((x) => `<div class="word-def">${esc(x)}</div>`).join("")}
+    ${example && example.example ? `<div class="word-ex">“${esc(stripHTML(example.example))}”</div>` : ""}
+    <div class="wx-actions"><button class="mini" data-refresh="word">Next word</button></div>`);
+}
+
+/* ---------- boot ---------- */
+Object.entries(cards).forEach(([id, c]) => {
+  run(id);
+  setInterval(() => run(id), c.every);
+});
+setInterval(tick, 1000);
+tick();
+</script>
+</body>
+</html>

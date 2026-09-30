@@ -1,0 +1,290 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Focus — Pomodoro &amp; Tasks</title>
+<style>
+  :root {
+    --bg: #0f1115; --card: #171a21; --card2: #1d212b; --border: #2a2f3a;
+    --text: #e8eaf0; --muted: #8b91a0; --accent: #ff6347; --accent2: #4ecdc4;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    background: radial-gradient(1200px 600px at 70% -10%, #23283a, var(--bg));
+    color: var(--text); min-height: 100vh; display: flex; justify-content: center; padding: 32px 16px;
+  }
+  .app { width: 100%; max-width: 460px; }
+  header h1 { margin: 0 0 4px; font-size: 28px; }
+  .sub { margin: 0 0 20px; color: var(--muted); font-size: 14px; }
+  .card {
+    background: var(--card); border: 1px solid var(--border); border-radius: 16px;
+    padding: 20px; margin-bottom: 16px; box-shadow: 0 10px 30px rgba(0,0,0,.35);
+  }
+  .modes { display: flex; gap: 8px; margin-bottom: 14px; }
+  .mode {
+    flex: 1; padding: 8px 0; border-radius: 10px; border: 1px solid var(--border);
+    background: var(--card2); color: var(--muted); cursor: pointer; font-size: 13px;
+  }
+  .mode.active { background: var(--accent); color: #fff; border-color: var(--accent); font-weight: 600; }
+  .time {
+    font-size: 64px; font-weight: 700; text-align: center; font-variant-numeric: tabular-nums;
+    letter-spacing: 2px; margin: 6px 0 10px;
+  }
+  .controls { display: flex; gap: 10px; justify-content: center; margin-bottom: 12px; }
+  button { cursor: pointer; font: inherit; }
+  button.primary { background: var(--accent); color: #fff; border: none; }
+  .controls button { padding: 10px 22px; border-radius: 10px; font-size: 15px; border: 1px solid var(--border); background: var(--card2); color: var(--text); }
+  .hint { margin: 0 0 6px; color: var(--muted); font-size: 13px; text-align: center; }
+  .sessions { margin: 0; text-align: center; color: var(--muted); font-size: 13px; }
+  .sessions b { color: var(--accent2); }
+  form { display: flex; gap: 8px; margin-bottom: 12px; }
+  input {
+    flex: 1; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--border);
+    background: var(--card2); color: var(--text); font: inherit; outline: none;
+  }
+  input:focus { border-color: var(--accent); }
+  form button.primary { padding: 10px 16px; border-radius: 10px; font-size: 14px; }
+  ul { list-style: none; margin: 0; padding: 0; }
+  .task {
+    display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 10px;
+    border: 1px solid transparent; cursor: pointer; margin-bottom: 6px; background: var(--card2);
+  }
+  .task:hover { border-color: var(--border); }
+  .task.focused { border-color: var(--accent); box-shadow: inset 3px 0 0 var(--accent); }
+  .task.done .text { text-decoration: line-through; color: var(--muted); }
+  .check {
+    width: 22px; height: 22px; flex: none; border-radius: 50%; border: 1.5px solid var(--muted);
+    background: transparent; color: #fff; font-size: 12px; line-height: 1;
+  }
+  .task.done .check { background: var(--accent2); border-color: var(--accent2); }
+  .text { flex: 1; font-size: 15px; word-break: break-word; }
+  .pomos { font-size: 13px; flex: none; }
+  .del { flex: none; border: none; background: transparent; color: var(--muted); font-size: 18px; padding: 2px 6px; border-radius: 6px; }
+  .del:hover { color: var(--accent); background: rgba(255,99,71,.1); }
+  .empty { color: var(--muted); text-align: center; font-size: 14px; padding: 12px 0; margin: 0; }
+  .card footer { display: flex; justify-content: flex-end; margin-top: 8px; }
+  .card footer button { border: none; background: transparent; color: var(--muted); font-size: 13px; }
+  .card footer button:hover { color: var(--accent); }
+</style>
+</head>
+<body>
+<main class="app">
+  <header>
+    <h1>🍅 Focus</h1>
+    <p class="sub">Pomodoro + tasks in one file. Your data stays in this browser.</p>
+  </header>
+
+  <section class="card">
+    <div class="modes">
+      <button class="mode active" data-mode="work">Focus 25</button>
+      <button class="mode" data-mode="short">Break 5</button>
+      <button class="mode" data-mode="long">Break 15</button>
+    </div>
+    <div class="time" id="time">25:00</div>
+    <div class="controls">
+      <button id="startBtn" class="primary">Start</button>
+      <button id="resetBtn">Reset</button>
+    </div>
+    <p class="hint" id="hint">Click a task to focus it — finished pomodoros attach to that task.</p>
+    <p class="sessions">Sessions today: <b id="sessions">0</b></p>
+  </section>
+
+  <section class="card">
+    <form id="taskForm">
+      <input id="taskInput" placeholder="Add a task…" maxlength="120" autocomplete="off">
+      <button class="primary" type="submit">Add</button>
+    </form>
+    <ul id="taskList"></ul>
+    <p class="empty" id="empty">No tasks yet. Add one above ✨</p>
+    <footer><button id="clearDone">Clear completed</button></footer>
+  </section>
+</main>
+
+<script>
+(() => {
+  'use strict';
+  const DUR = { work: 25 * 60, short: 5 * 60, long: 15 * 60 };
+  const $ = (s) => document.querySelector(s);
+
+  const els = {
+    time: $('#time'), start: $('#startBtn'), reset: $('#resetBtn'),
+    sessions: $('#sessions'), list: $('#taskList'), empty: $('#empty'),
+    form: $('#taskForm'), input: $('#taskInput'), clearDone: $('#clearDone'), hint: $('#hint'),
+  };
+
+  const todayKey = () => new Date().toDateString();
+  let meta = JSON.parse(localStorage.getItem('focus.meta') || 'null') || { day: todayKey(), count: 0 };
+  if (meta.day !== todayKey()) meta = { day: todayKey(), count: 0 };
+  let tasks = JSON.parse(localStorage.getItem('focus.tasks') || '[]');
+  let focusedId = JSON.parse(localStorage.getItem('focus.focused') || 'null');
+
+  let mode = 'work';
+  let remaining = DUR.work;
+  let running = false;
+  let endAt = 0;
+  let tick = null;
+  let workStreak = 0; // work sessions since last long break
+
+  const save = () => {
+    localStorage.setItem('focus.tasks', JSON.stringify(tasks));
+    localStorage.setItem('focus.meta', JSON.stringify(meta));
+    localStorage.setItem('focus.focused', JSON.stringify(focusedId));
+  };
+
+  const fmt = (s) =>
+    String(Math.floor(s / 60)).padStart(2, '0') + ':' + String(s % 60).padStart(2, '0');
+
+  function renderTime() {
+    els.time.textContent = fmt(remaining);
+    document.title = running
+      ? fmt(remaining) + ' · ' + (mode === 'work' ? 'Focus' : 'Break')
+      : 'Focus — Pomodoro & Tasks';
+  }
+
+  function renderSessions() { els.sessions.textContent = meta.count; }
+
+  function updateHint() {
+    const t = tasks.find((t) => t.id === focusedId && !t.done);
+    els.hint.textContent = t
+      ? 'Focusing: “' + t.text + '”'
+      : 'Click a task to focus it — finished pomodoros attach to that task.';
+  }
+
+  function renderTasks() {
+    els.list.innerHTML = '';
+    els.empty.style.display = tasks.length ? 'none' : 'block';
+    for (const t of tasks) {
+      const li = document.createElement('li');
+      li.className = 'task' + (t.done ? ' done' : '') + (t.id === focusedId ? ' focused' : '');
+
+      const check = document.createElement('button');
+      check.className = 'check';
+      check.textContent = t.done ? '✓' : '';
+      check.title = t.done ? 'Mark as not done' : 'Mark done';
+      check.addEventListener('click', (e) => {
+        e.stopPropagation();
+        t.done = !t.done;
+        if (t.done && t.id === focusedId) focusedId = null;
+        save(); renderTasks();
+      });
+
+      const span = document.createElement('span');
+      span.className = 'text';
+      span.textContent = t.text;
+
+      const pomo = document.createElement('span');
+      pomo.className = 'pomos';
+      pomo.textContent = t.pomos
+        ? '🍅'.repeat(Math.min(t.pomos, 5)) + (t.pomos > 5 ? ' ×' + t.pomos : '')
+        : '';
+
+      const del = document.createElement('button');
+      del.className = 'del';
+      del.textContent = '×';
+      del.title = 'Delete';
+      del.addEventListener('click', (e) => {
+        e.stopPropagation();
+        tasks = tasks.filter((x) => x.id !== t.id);
+        if (focusedId === t.id) focusedId = null;
+        save(); renderTasks();
+      });
+
+      li.append(check, span, pomo, del);
+      li.addEventListener('click', () => {
+        if (t.done) return;
+        focusedId = focusedId === t.id ? null : t.id;
+        save(); renderTasks();
+      });
+      els.list.appendChild(li);
+    }
+    updateHint();
+  }
+
+  function setMode(m, autostart = false) {
+    mode = m;
+    running = false;
+    clearInterval(tick);
+    remaining = DUR[m];
+    document.querySelectorAll('.mode').forEach((b) =>
+      b.classList.toggle('active', b.dataset.mode === m));
+    els.start.textContent = 'Start';
+    renderTime();
+    if (autostart) start();
+  }
+
+  function start() {
+    if (running) return;
+    running = true;
+    endAt = Date.now() + remaining * 1000;
+    els.start.textContent = 'Pause';
+    tick = setInterval(() => {
+      remaining = Math.max(0, Math.round((endAt - Date.now()) / 1000));
+      renderTime();
+      if (remaining === 0) complete();
+    }, 250);
+    renderTime();
+  }
+
+  function pause() {
+    running = false;
+    clearInterval(tick);
+    els.start.textContent = 'Start';
+    renderTime();
+  }
+
+  function complete() {
+    clearInterval(tick);
+    running = false;
+    beep();
+    if (mode === 'work') {
+      meta.count++;
+      workStreak++;
+      const t = tasks.find((t) => t.id === focusedId && !t.done);
+      if (t) t.pomos = (t.pomos || 0) + 1;
+      save(); renderTasks(); renderSessions();
+      setMode(workStreak % 4 === 0 ? 'long' : 'short'); // pause; user starts the break
+    } else {
+      setMode('work');
+    }
+  }
+
+  function beep() {
+    try {
+      const ctx = new (window.AudioContext || window.webkitAudioContext)();
+      const o = ctx.createOscillator();
+      const g = ctx.createGain();
+      o.connect(g); g.connect(ctx.destination);
+      o.frequency.value = 880;
+      g.gain.setValueAtTime(0.001, ctx.currentTime);
+      g.gain.exponentialRampToValueAtTime(0.2, ctx.currentTime + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.6);
+      o.start(); o.stop(ctx.currentTime + 0.65);
+    } catch (e) { /* audio not available — no big deal */ }
+  }
+
+  els.start.addEventListener('click', () => (running ? pause() : start()));
+  els.reset.addEventListener('click', () => setMode(mode));
+  document.querySelectorAll('.mode').forEach((b) =>
+    b.addEventListener('click', () => setMode(b.dataset.mode)));
+
+  els.form.addEventListener('submit', (e) => {
+    e.preventDefault();
+    const text = els.input.value.trim();
+    if (!text) return;
+    tasks.unshift({ id: Date.now() + '-' + Math.random().toString(16).slice(2), text, done: false, pomos: 0 });
+    els.input.value = '';
+    save(); renderTasks();
+  });
+
+  els.clearDone.addEventListener('click', () => {
+    tasks = tasks.filter((t) => !t.done);
+    save(); renderTasks();
+  });
+
+  save(); renderSessions(); renderTasks(); setMode('work');
+})();
+</script>
+</body>
+</html>
