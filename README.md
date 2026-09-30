@@ -2,6 +2,11 @@
 
 Two zero-dependency, single-file web apps. No build step, no npm install — just open in a browser.
 
+## 🌐 Live
+
+- Focus → https://dannybyarun.github.io/focus-dash/
+- Dash → https://dannybyarun.github.io/focus-dash/dashboard/
+
 ## 🍅 Focus — Pomodoro + Task List
 `index.html`
 
