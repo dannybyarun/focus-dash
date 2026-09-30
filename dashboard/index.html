@@ -301,11 +301,41 @@
       <div class="card-foot"><span id="foot-word"></span> · wiktionary.org</div>
     </section>
 
+    <section class="card" id="card-recipe">
+      <div class="card-head"><h2>🍽️ Recipe of the day</h2><button class="mini" data-refresh="recipe">↻</button></div>
+      <div class="body" id="body-recipe"><div class="skeleton">Loading…</div></div>
+      <div class="card-foot"><span id="foot-recipe"></span> · themealdb.com</div>
+    </section>
+
+    <section class="card" id="card-music">
+      <div class="card-head"><h2>🎵 Music finder</h2><button class="mini" data-refresh="music">↻</button></div>
+      <div class="body" id="body-music"><div class="skeleton">Loading…</div></div>
+      <div class="card-foot"><span id="foot-music"></span> · itunes search api</div>
+    </section>
+
+    <section class="card" id="card-books">
+      <div class="card-head"><h2>📚 Book finder</h2><button class="mini" data-refresh="books">↻</button></div>
+      <div class="body" id="body-books"><div class="skeleton">Loading…</div></div>
+      <div class="card-foot"><span id="foot-books"></span> · openlibrary.org</div>
+    </section>
+
+    <section class="card" id="card-chess">
+      <div class="card-head"><h2>♟️ Chess stats</h2><button class="mini" data-refresh="chess">↻</button></div>
+      <div class="body" id="body-chess"><div class="skeleton">Loading…</div></div>
+      <div class="card-foot"><span id="foot-chess"></span> · chess.com / lichess</div>
+    </section>
+
+    <section class="card" id="card-qr">
+      <div class="card-head"><h2>📲 Share this dashboard</h2><button class="mini" data-refresh="qr">↻</button></div>
+      <div class="body" id="body-qr"><div class="skeleton">Loading…</div></div>
+      <div class="card-foot"><span id="foot-qr"></span> · qrserver.com</div>
+    </section>
+
   </div>
 </main>
 
 <footer class="page">
-  Live data fetched client-side from free public APIs · no keys, no backend, no setup · your city &amp; theme are saved in localStorage · <a href="/">focus app ↗</a>
+  Live data fetched client-side from free public APIs · no keys, no backend, no setup · your city &amp; theme are saved in localStorage · <a href="/">focus app ↗</a> · <a href="/apps.html">📱 apps ↗</a>
 </footer>
 
 <noscript><p style="text-align:center">This dashboard needs JavaScript to fetch live data.</p></noscript>
@@ -370,6 +400,11 @@ const cards = {
   joke:     { every: 6 * 60e3,  load: loadJoke },
   fun:      { every: 10 * 60e3, load: loadFun },
   word:     { every: 6 * 60e3,  load: loadWord },
+  recipe:   { every: 30 * 60e3, load: loadRecipe },
+  music:    { every: 60 * 60e3, load: loadMusic },
+  books:    { every: 60 * 60e3, load: loadBooks },
+  chess:    { every: 30 * 60e3, load: loadChess },
+  qr:       { every: 15 * 60e3, load: loadQR },
 };
 const updated = {};
 const setBody = (id, html) => { $("body-" + id).innerHTML = html; };
@@ -652,7 +687,7 @@ async function loadRates() {
       <span>=</span><b id="conv-out"></b>
     </div>
     <div class="rates-grid">${list.map(([c, v]) =>
-      `<div class="rate"><span>1 USD →</span><b>${v.toFixed(v < 10 ? 4 : 2)} ${c}</b></div>`).join("")}</div>`);
+      `<div class="rate" data-cur="${c}"><span>1 USD →</span><b>${v.toFixed(v < 10 ? 4 : 2)} ${c}</b></div>`).join("")}</div>`);
   const conv = () => {
     const amt = parseFloat($("usd-amt").value) || 0;
     const cur = $("conv-cur").value;
@@ -950,6 +985,146 @@ async function loadWord() {
     ${defs.map((x) => `<div class="word-def">${esc(x)}</div>`).join("")}
     ${example && example.example ? `<div class="word-ex">“${esc(stripHTML(example.example))}”</div>` : ""}
     <div class="wx-actions"><button class="mini" data-refresh="word">Next word</button></div>`);
+}
+
+/* ---------- recipe of the day ---------- */
+async function loadRecipe() {
+  const d = await fetchJSON("https://www.themealdb.com/api/json/v1/1/random.php");
+  const m = (d.meals || [])[0];
+  if (!m) throw new Error("no recipe returned");
+  const ings = [];
+  for (let i = 1; i <= 20; i++) {
+    const ing = m["strIngredient" + i];
+    if (ing && ing.trim()) ings.push(((m["strMeasure" + i] || "") + " " + ing.trim()).trim());
+  }
+  setBody("recipe", `
+    <img class="recipe-img" src="${esc(m.strMealThumb)}" alt="photo of ${esc(m.strMeal)}" loading="lazy">
+    <div style="font-weight:700;margin-top:10px;font-size:15px">${esc(m.strMeal)}</div>
+    <div class="dim" style="margin-top:2px">${esc(m.strCategory || "")}${m.strArea ? " · " + esc(m.strArea) : ""}${m.strYoutube ? ` · <a class="gh-link" href="${esc(m.strYoutube)}" target="_blank" rel="noopener">video ↗</a>` : ""}</div>
+    <div class="chips" style="margin-top:10px">${ings.slice(0, 6).map((x) => `<span class="chip" style="cursor:default">${esc(x)}</span>`).join("")}</div>
+    <div class="word-def" style="margin-top:10px">${esc(truncate(stripHTML(m.strInstructions || ""), 280))}</div>
+    <div class="wx-actions"><button class="mini" data-refresh="recipe">Another one 🍽️</button></div>`);
+}
+
+/* ---------- music finder ---------- */
+let musicQ = "daft punk";
+try { musicQ = localStorage.getItem("dash.music") || musicQ; } catch (_) {}
+async function loadMusic() {
+  const term = musicQ.trim() || "daft punk";
+  const d = await fetchJSON("https://itunes.apple.com/search?term=" + encodeURIComponent(term) + "&entity=song&limit=6");
+  const rs = (d.results || []).filter((r) => r.trackName);
+  if (!rs.length) throw new Error("no tracks found for “" + term + "”");
+  setBody("music", `
+    <form class="wx-form" id="music-form">
+      <input id="music-input" value="${esc(musicQ)}" placeholder="Search songs or artists" autocomplete="off" spellcheck="false">
+      <button class="mini" type="submit">Search</button>
+    </form>
+    ${rs.map((r) => `<div class="qk">
+      <img class="music-art" src="${esc(r.artworkUrl100)}" alt="" loading="lazy" onerror="this.style.display='none'">
+      <div style="min-width:0">
+        <div class="ln-name">${esc(truncate(r.trackName, 40))}</div>
+        <div class="ln-sub">${esc(truncate(r.artistName, 34))}${r.primaryGenreName ? " · " + esc(r.primaryGenreName) : ""}${r.releaseDate ? " · " + esc(String(r.releaseDate).slice(0, 4)) : ""}</div>
+      </div>
+      ${r.previewUrl ? `<audio class="music-audio" controls preload="none" src="${esc(r.previewUrl)}"></audio>` : ""}
+    </div>`).join("")}`);
+  $("music-form").addEventListener("submit", (ev) => {
+    ev.preventDefault();
+    const v = $("music-input").value.trim();
+    if (!v) return;
+    musicQ = v;
+    try { localStorage.setItem("dash.music", v); } catch (_) {}
+    run("music");
+  });
+}
+
+/* ---------- book finder ---------- */
+let booksQ = "dune";
+try { booksQ = localStorage.getItem("dash.books") || booksQ; } catch (_) {}
+async function loadBooks() {
+  const q = booksQ.trim() || "dune";
+  const d = await fetchJSON("https://openlibrary.org/search.json?q=" + encodeURIComponent(q) + "&limit=6&fields=key,title,author_name,first_publish_year,cover_i");
+  const docs = (d.docs || []).filter((b) => b.title);
+  if (!docs.length) throw new Error("no books found for “" + q + "”");
+  setBody("books", `
+    <form class="wx-form" id="books-form">
+      <input id="books-input" value="${esc(booksQ)}" placeholder="Search books" autocomplete="off" spellcheck="false">
+      <button class="mini" type="submit">Search</button>
+    </form>
+    ${docs.map((b) => `<div class="qk">
+      ${b.cover_i ? `<img class="book-cov" src="https://covers.openlibrary.org/b/id/${b.cover_i}-M.jpg" alt="" loading="lazy" onerror="this.style.display='none'">` : `<div class="book-cov" style="display:flex;align-items:center;justify-content:center">📕</div>`}
+      <div style="min-width:0">
+        <div class="ln-name">${esc(truncate(b.title, 60))}</div>
+        <div class="ln-sub">${esc(truncate((b.author_name || ["unknown author"])[0], 40))}${b.first_publish_year ? " · " + b.first_publish_year : ""}</div>
+      </div>
+    </div>`).join("")}`);
+  $("books-form").addEventListener("submit", (ev) => {
+    ev.preventDefault();
+    const v = $("books-input").value.trim();
+    if (!v) return;
+    booksQ = v;
+    try { localStorage.setItem("dash.books", v); } catch (_) {}
+    run("books");
+  });
+}
+
+/* ---------- chess stats ---------- */
+let chessUser = "";
+try { chessUser = localStorage.getItem("dash.chess") || ""; } catch (_) {}
+function chessForm() {
+  return `<form class="wx-form" id="chess-form">
+    <input id="chess-input" value="${esc(chessUser)}" placeholder="chess.com or lichess username" autocomplete="off" spellcheck="false">
+    <button class="mini" type="submit">Load</button>
+  </form>`;
+}
+async function loadChess() {
+  if (!chessUser) {
+    setBody("chess", chessForm() + `<div class="hint">Enter a username — I'll try chess.com first, then lichess.</div>`);
+  } else {
+    let html = "", src = "";
+    try {
+      const s = await fetchJSON("https://api.chess.com/pub/player/" + encodeURIComponent(chessUser) + "/stats");
+      const rows = [["chess_rapid", "Rapid"], ["chess_blitz", "Blitz"], ["chess_bullet", "Bullet"]]
+        .map(([k, n]) => { const r = s[k] && s[k].last && s[k].last.rating; return r ? `<div class="row"><div>${n}</div><div class="price">${r}</div></div>` : ""; }).join("");
+      if (rows) { html = rows; src = "chess.com"; }
+    } catch (_) {}
+    if (!html) {
+      const l = await fetchJSON("https://lichess.org/api/user/" + encodeURIComponent(chessUser));
+      const rows = [["rapid", "Rapid"], ["blitz", "Blitz"], ["bullet", "Bullet"]]
+        .map(([k, n]) => { const per = l.perfs && l.perfs[k]; return per && per.rating ? `<div class="row"><div>${n}</div><div class="price">${per.rating}</div></div>` : ""; }).join("");
+      if (!rows) throw new Error("no rated games found for “" + chessUser + "”");
+      html = rows + `<div class="dim" style="margin-top:8px">${l.count && l.count.all ? l.count.all.toLocaleString("en-US") + " games played" : ""}${l.playing ? " · 🟢 playing now" : ""}</div>`;
+      src = "lichess.org";
+    }
+    setBody("chess", chessForm() + html + `<div class="hint">${src} · current ratings</div>`);
+  }
+  $("chess-form").addEventListener("submit", (ev) => {
+    ev.preventDefault();
+    const v = $("chess-input").value.trim();
+    if (!v) return;
+    chessUser = v;
+    try { localStorage.setItem("dash.chess", v); } catch (_) {}
+    run("chess");
+  });
+}
+
+/* ---------- QR share ---------- */
+async function loadQR() {
+  const site = new URL("/", location.href).href;
+  const img = "https://api.qrserver.com/v1/create-qr-code/?size=225x225&margin=8&data=" + encodeURIComponent(site);
+  setBody("qr", `
+    <div style="text-align:center">
+      <img class="qr-img" src="${esc(img)}" alt="QR code linking to this site" loading="lazy">
+      <div class="word-def" style="margin-top:10px;word-break:break-all"><a class="gh-link" href="${esc(site)}">${esc(site)}</a></div>
+      <div class="dim" style="margin-top:6px">scan to open the dashboard on your phone 📱</div>
+      <div class="wx-actions" style="justify-content:center"><button class="mini" id="qr-copy">Copy link</button></div>
+    </div>`);
+  $("qr-copy").addEventListener("click", async () => {
+    try {
+      await navigator.clipboard.writeText(site);
+      $("qr-copy").textContent = "Copied ✓";
+      setTimeout(() => { if ($("qr-copy")) $("qr-copy").textContent = "Copy link"; }, 1600);
+    } catch (_) {}
+  });
 }
 
 /* ---------- boot ---------- */

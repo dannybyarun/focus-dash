@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Notes — PocketOS</title>
+<link rel="stylesheet" href="/shared.css">
+<style>
+  body{padding:1rem 1.2rem}
+  .toolbar{display:flex;gap:.5rem;align-items:center;margin-bottom:1rem;flex-wrap:wrap}
+  #newNote{flex:1;min-width:200px}
+  .note{background:#11151c;border:1px solid #1f2a37;border-radius:10px;padding:1rem;margin-bottom:.8rem}
+  .note h3{margin:.2rem 0 .5rem;font-size:1.05rem}
+  .note p{white-space:pre-wrap;word-break:break-word;color:#cfd6e1;font-size:.92rem;line-height:1.5}
+  .note .meta{font-size:.72rem;color:#6b7a89;margin-top:.5rem}
+  .note .del{background:none;border:none;color:#ff6b6b;cursor:pointer;font-size:.85rem}
+  .empty{color:#5b6b7d;text-align:center;padding:2rem}
+</style>
+</head>
+<body>
+  <div style="max-width:480px;margin:0 auto;padding:1rem 1rem 0">
+    <a href="/apps.html" style="color:var(--dim);font-size:.85rem;text-decoration:none">← PocketOS</a>
+  </div>
+  <div class="toolbar">
+    <input id="newNote" type="text" placeholder="New note title…">
+    <button id="addBtn">＋ Add</button>
+  </div>
+  <div id="list"></div>
+
+<script>
+const KEY = "pocketos.notes";
+function load(){ try { return JSON.parse(localStorage.getItem(KEY)) || []; } catch(e){ return []; } }
+function save(n){ localStorage.setItem(KEY, JSON.stringify(n)); }
+
+function render(){
+  const list = load().sort((a,b)=>b.ts-a.ts);
+  const el = $("list");
+  if(!list.length){ el.innerHTML = '<div class="empty">No notes yet. Add one above.</div>'; return; }
+  el.innerHTML = list.map((n,i)=>
+    `<div class="note">
+      <h3>${esc(n.title||"(untitled)")}</h3>
+      <p>${esc(n.body||"")}</p>
+      <div class="meta">${new Date(n.ts).toLocaleString()}</div>
+      <button class="del" data-i="${i}">✕ delete</button>
+    </div>`).join("");
+  el.querySelectorAll(".del").forEach(b=>b.onclick=()=>{
+    const list=load(); list.splice(+b.dataset.i,1); save(list); render();
+  });
+}
+
+function esc(s){return String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));}
+
+$("addBtn").onclick=()=>{
+  const t=$("newNote").value.trim();
+  if(!t) return;
+  const list=load(); list.push({title:t,body:"",ts:Date.now()}); save(list);
+  $("newNote").value=""; render();
+};
+$("newNote").addEventListener("keydown",e=>{ if(e.key==="Enter") $("addBtn").click(); });
+render();
+</script>
+</body>
+</html>

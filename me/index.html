@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Me — PocketOS</title>
+<link rel="stylesheet" href="/shared.css">
+<style>
+  body{padding:1.5rem 1.2rem}
+  .card{background:#11151c;border:1px solid #1f2a37;border-radius:14px;padding:1.6rem;max-width:480px;margin:0 auto;text-align:center}
+  .avatar{width:96px;height:96px;border-radius:50%;margin:0 auto .8rem;background:linear-gradient(135deg,#7c5cff,#00e5a8);display:flex;align-items:center;justify-content:center;font-size:2.4rem;font-weight:700;color:#061018}
+  .card input,.card textarea{width:100%;background:#0a0e14;border:1px solid #2a3a4d;border-radius:8px;color:#e6e9ee;padding:.6rem .8rem;font:inherit;margin:.4rem 0;font-size:.9rem}
+  .card textarea{resize:vertical;min-height:60px}
+  .links{margin:1rem 0}
+  .link-row{display:flex;gap:.4rem;margin:.3rem 0}
+  .link-row input{flex:1}
+  .btn-save{background:linear-gradient(135deg,#7c5cff,#00e5a8);color:#061018;border:none;border-radius:8px;padding:.7rem 1.4rem;font-weight:700;cursor:pointer;font-size:.95rem}
+  .btn-add{background:#1f2a37;color:#e6e9ee;border:1px solid #2a3a4d;border-radius:8px;padding:.4rem .9rem;cursor:pointer;font-size:.85rem}
+</style>
+</head>
+<body>
+  <div style="max-width:480px;margin:0 auto;padding:1rem 1rem 0">
+    <a href="/apps.html" style="color:var(--dim);font-size:.85rem;text-decoration:none">← PocketOS</a>
+  </div>
+  <div class="card">
+    <div class="avatar" id="avatar">?</div>
+    <input id="name" type="text" placeholder="Your name">
+    <input id="handle" type="text" placeholder="@handle">
+    <textarea id="bio" placeholder="A short bio…"></textarea>
+    <div class="links">
+      <div class="link-row"><input id="link1" type="text" placeholder="https://…"></div>
+      <div class="link-row"><input id="link2" type="text" placeholder="https://…"></div>
+      <div class="link-row"><input id="link3" type="text" placeholder="https://…"></div>
+      <button class="btn-add" id="addLink">＋ add link</button>
+    </div>
+    <button class="btn-save" id="saveBtn">💾 Save profile</button>
+  </div>
+
+<script>
+const KEY="pocketos.me";
+function load(){try{return JSON.parse(localStorage.getItem(KEY))||{};}catch(e){return{};}}
+function save(d){localStorage.setItem(KEY,JSON.stringify(d));}
+
+const fields=["name","handle","bio","link1","link2","link3"];
+function fill(){
+  const d=load();
+  fields.forEach(f=>{const el=$(f); if(el) el.value=d[f]||"";});
+  $("avatar").textContent=(d.name||"?").slice(0,2).toUpperCase();
+}
+function collect(){
+  const d={};
+  fields.forEach(f=>{const v=$(f)?.value.trim(); if(v) d[f]=v;});
+  return d;
+}
+$("saveBtn").onclick=()=>{
+  const d=collect(); save(d);
+  $("avatar").textContent=(d.name||"?").slice(0,2).toUpperCase();
+  const b=document.querySelector(".btn-save"); b.textContent="✅ Saved!";
+  setTimeout(()=>b.textContent="💾 Save profile",1200);
+};
+$("addLink").onclick=()=>{
+  const wrap=$(".links");
+  const row=document.createElement("div"); row.className="link-row";
+  const inp=document.createElement("input"); inp.type="text"; inp.placeholder="https://…";
+  row.appendChild(inp); wrap.insertBefore(row, $("addLink"));
+  fields.push("link"+(fields.length+1));
+};
+fill();
+</script>
+</body>
+</html>

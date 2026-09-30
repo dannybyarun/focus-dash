@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Split — expense splitter</title>
+<style>
+:root{--bg:#0b0e14;--card:#141926;--line:#232a3d;--txt:#e8ecf4;--dim:#8b93a7;--acc:#7c6cff;--ok:#22c55e;--bad:#ef4444}
+*{box-sizing:border-box;margin:0}
+body{background:var(--bg);color:var(--txt);font:16px/1.5 system-ui,sans-serif;padding:16px;max-width:860px;margin:0 auto}
+h1{font-size:1.5rem;margin-bottom:2px}a.back{color:var(--dim);font-size:.85rem;text-decoration:none}
+.mut{color:var(--dim);font-size:.85rem;margin-bottom:14px}
+.row{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px}
+input,select{background:#0e1320;border:1px solid var(--line);color:var(--txt);border-radius:8px;padding:9px 11px;font:inherit;min-width:0}
+input:focus,select:focus{outline:none;border-color:var(--acc)}
+button{background:var(--acc);color:#fff;border:0;border-radius:8px;padding:9px 14px;font:inherit;font-weight:600;cursor:pointer}
+button.ghost{background:transparent;border:1px solid var(--line);color:var(--dim)}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px;margin-bottom:12px}
+.chip{display:inline-flex;align-items:center;gap:6px;background:#0e1320;border:1px solid var(--line);border-radius:999px;padding:4px 12px;font-size:.9rem;margin:0 6px 6px 0}
+.chip b{font-weight:600}.chip button{background:none;border:0;color:var(--dim);padding:0 2px;font-size:1rem;line-height:1}
+table{width:100%;border-collapse:collapse;font-size:.95rem}
+th{color:var(--dim);text-align:left;font-weight:500;font-size:.8rem;padding:6px 8px;border-bottom:1px solid var(--line)}
+td{padding:8px;border-bottom:1px solid #1a2030}
+.pos{color:var(--ok);font-weight:600}.neg{color:var(--bad);font-weight:600}
+.transfer{display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px dashed #1a2030;font-size:.95rem}
+.transfer span b{color:var(--acc)}
+.tag{font-size:.75rem;background:#0e1320;border:1px solid var(--line);border-radius:6px;padding:2px 8px;color:var(--dim)}
+@media(max-width:600px){.hide-m{display:none}}
+</style>
+</head>
+<body>
+<h1>✂️ Split</h1>
+<a class="back" href="/apps.html">← PocketOS</a>
+<p class="mut">Shared expenses, settled fairly. Everything stays in <b>your browser</b> (localStorage).</p>
+
+<div class="card">
+  <div class="row">
+    <input id="p-name" placeholder="Add person… (Tab to add)" style="flex:1">
+    <button id="add-person">＋ Person</button>
+  </div>
+  <div id="people"></div>
+</div>
+
+<div class="card">
+  <div class="row">
+    <input id="e-desc" placeholder="What was it?" style="flex:2">
+    <input id="e-amt" type="number" min="0" step="0.01" placeholder="0.00" style="flex:1">
+    <select id="e-payer" style="flex:1"></select>
+  </div>
+  <div class="row" id="e-for" style="align-items:center"><span class="mut">Split between:</span></div>
+  <div class="row"><button id="add-exp">Add expense</button></div>
+</div>
+
+<div class="card">
+  <h2 style="font-size:1rem;margin-bottom:8px">🧾 Expenses <span id="e-count" class="tag"></span></h2>
+  <table><thead><tr><th>What</th><th>Payer</th><th class="hide-m">Split</th><th style="text-align:right">Amount</th><th></th></tr></thead><tbody id="exp-rows"></tbody></table>
+</div>
+
+<div class="card">
+  <h2 style="font-size:1rem;margin-bottom:8px">⚖️ Balances</h2>
+  <div id="balances"></div>
+  <h2 style="font-size:1rem;margin:14px 0 4px">💸 Who pays whom</h2>
+  <div id="settles"></div>
+  <div class="row" style="margin-top:12px">
+    <button id="csv" class="ghost">⬇️ Export CSV</button>
+    <button id="reset" class="ghost">🗑 Clear all</button>
+  </div>
+</div>
+
+<script>
+const $=id=>document.getElementById(id);
+const KEY="split.v1";
+let st=JSON.parse(localStorage.getItem(KEY)||'{"people":[],"exp":[]}');
+const sym=()=> "$";
+const save=()=>localStorage.setItem(KEY,JSON.stringify(st));
+const fmt=n=>sym()+n.toFixed(2);
+const name=id=>(st.people.find(p=>p.id===id)||{}).name||"?";
+
+function addPerson(){
+  const v=$("p-name").value.trim(); if(!v)return;
+  st.people.push({id:Date.now()+"-"+Math.random().toString(36).slice(2,6),name:v});
+  $("p-name").value=""; save(); render();
+}
+$("add-person").onclick=addPerson;
+$("p-name").addEventListener("keydown",e=>{if(e.key==="Enter")addPerson()});
+
+function selectedFor(){return [...document.querySelectorAll("#e-for input:checked")].map(i=>i.value);}
+function renderFor(){
+  const box=$("e-for"); const sel=selectedFor();
+  box.innerHTML='<span class="mut">Split between:</span>'+st.people.map(p=>
+    `<label class="chip"><input type="checkbox" value="${p.id}" ${sel.includes(p.id)||!sel.length?"checked":""} style="accent-color:var(--acc)"> ${p.name}</label>`).join("");
+}
+function renderPeople(){
+  $("people").innerHTML=st.people.map(p=>`<span class="chip"><b>${p.name}</b><button data-rm-p="${p.id}" title="remove">✕</button></span>`).join("")||'<span class="mut">Add everyone who shares expenses.</span>';
+  $("people").onclick=e=>{const b=e.target.closest("[data-rm-p]");if(!b)return;
+    st.people=st.people.filter(p=>p.id!==b.dataset.rmP);
+    st.exp=st.exp.filter(x=>st.people.length&&x.parts.every(id=>st.people.some(p=>p.id===id))&&st.people.some(p=>p.id===x.payer)||true);
+    st.exp=st.exp.filter(x=>st.people.some(p=>p.id===x.payer)); save(); render();};
+}
+function renderPayers(){
+  const cur=$("e-payer").value;
+  $("e-payer").innerHTML=st.people.map(p=>`<option value="${p.id}">${p.name}</option>`).join("");
+  if(cur&&st.people.some(p=>p.id===cur))$("e-payer").value=cur;
+}
+$("add-exp").onclick=()=>{
+  const d=$("e-desc").value.trim(), amt=parseFloat($("e-amt").value), payer=$("e-payer").value, parts=selectedFor();
+  if(!d||!(amt>0)||!payer||!parts.length)return;
+  st.exp.push({id:Date.now(),d,amt:+amt.toFixed(2),payer,parts});
+  $("e-desc").value="";$("e-amt").value=""; save(); render();
+};
+
+function render(){
+  renderPeople();renderPayers();renderFor();
+  const per={}, paid={};
+  st.people.forEach(p=>{per[p.id]=0;paid[p.id]=0});
+  st.exp.forEach(x=>{paid[x.payer]+=x.amt; x.parts.forEach(id=>{if(id in per)per[id]+=x.amt/x.parts.length})});
+  $("e-count").textContent=st.exp.length?`${st.exp.length} · total ${fmt(st.exp.reduce((s,x)=>s+x.amt,0))}`:"none yet";
+  $("exp-rows").innerHTML=st.exp.slice().reverse().map(x=>
+    `<tr><td>${x.d}</td><td>${name(x.payer)}</td><td class="hide-m mut">${x.parts.length}</td><td style="text-align:right">${fmt(x.amt)}</td><td style="text-align:right"><button class="ghost" data-del="${x.id}" style="padding:2px 8px">✕</button></td></tr>`).join("")
+    ||'<tr><td colspan="5" class="mut">No expenses yet.</td></tr>';
+  $("exp-rows").onclick=e=>{const b=e.target.closest("[data-del]");if(!b)return;
+    st.exp=st.exp.filter(x=>x.id!==+b.dataset.del); save(); render();};
+
+  const net=st.people.map(p=>({p,net:paid[p.id]-per[p.id]})).sort((a,b)=>b.net-a.net);
+  $("balances").innerHTML=net.map(({p,net})=>
+    `<div class="transfer"><span>${p.name}</span><span class="${net>0.005?"pos":net<-0.005?"neg":""}">${net>0.005?"+":""}${fmt(Math.abs(net))}${Math.abs(net)<=0.005?" · settled":""}</span></div>`).join("")
+    ||'<span class="mut">—</span>';
+
+  const cred=net.filter(n=>n.net>0.005), deb=net.filter(n=>n.net<-0.005);
+  const t=[];let ci=0,di=0;
+  while(ci<cred.length&&di<deb.length){
+    const amt=Math.min(cred[ci].net,-deb[di].net);
+    t.push({from:name(deb[di].p.id),to:name(cred[ci].p.id),amt});
+    cred[ci].net-=amt;deb[di].net+=amt;
+    if(cred[ci].net<=0.005)ci++; if(deb[di].net>=-0.005)di++;
+  }
+  $("settles").innerHTML=t.length?t.map(x=>
+    `<div class="transfer"><span><b>${x.from}</b> → <b>${x.to}</b></span><span>${fmt(x.amt)}</span></div>`).join("")
+    :'<span class="mut">All settled 🎉</span>';
+}
+$("csv").onclick=()=>{
+  const rows=[["description","payer","amount","split_count"],...st.exp.map(x=>[x.d,name(x.payer),x.amt,x.parts.length])];
+  const blob=new Blob([rows.map(r=>r.map(c=>`"${String(c).replace(/"/g,'""')}"`).join(",")).join("\n")],{type:"text/csv"});
+  const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download="split-expenses.csv";a.click();
+};
+$("reset").onclick=()=>{if(confirm("Delete everyone and everything?")){st={people:[],exp:[]};save();render();}};
+render();
+</script>
+</body>
+</html>

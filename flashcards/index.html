@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Cards — spaced repetition flashcards</title>
+<style>
+:root{--bg:#0b0e14;--card:#141926;--line:#232a3d;--txt:#e8ecf4;--dim:#8b93a7;--acc:#22c55e;--warn:#f59e0b;--bad:#ef4444}
+*{box-sizing:border-box;margin:0}
+body{background:var(--bg);color:var(--txt);font:16px/1.5 system-ui,sans-serif;padding:16px;max-width:860px;margin:0 auto}
+h1{font-size:1.5rem}a.back{color:var(--dim);font-size:.85rem;text-decoration:none}
+.mut{color:var(--dim);font-size:.85rem}
+.row{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0}
+input,textarea{background:#0e1320;border:1px solid var(--line);color:var(--txt);border-radius:8px;padding:9px 11px;font:inherit;width:100%}
+input:focus,textarea:focus{outline:none;border-color:var(--acc)}
+textarea{min-height:70px;resize:vertical}
+button{background:var(--acc);color:#04110a;border:0;border-radius:8px;padding:9px 14px;font:inherit;font-weight:700;cursor:pointer}
+button.ghost{background:transparent;border:1px solid var(--line);color:var(--dim);font-weight:600}
+button.again{background:var(--bad);color:#fff}button.good{background:var(--warn);color:#fff}button.easy{background:var(--acc)}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px;margin-bottom:12px}
+.deck{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid #1a2030;cursor:pointer}
+.deck:hover{background:#1a2030;border-radius:8px}
+.tag{font-size:.75rem;background:#0e1320;border:1px solid var(--line);border-radius:6px;padding:2px 8px;color:var(--dim)}
+#flip{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:34px 20px;min-height:220px;display:flex;align-items:center;justify-content:center;text-align:center;font-size:1.3rem;cursor:pointer;line-height:1.45;white-space:pre-wrap}
+.due{color:var(--warn)}#hidden{display:none}
+</style>
+</head>
+<body>
+<h1>🃏 Cards</h1>
+<a class="back" href="/apps.html">← PocketOS</a>
+<p class="mut">Spaced repetition (SM-2 style). Cards come back right before you'd forget. Data stays local.</p>
+
+<div id="list-view">
+  <div class="card">
+    <div class="row"><input id="nd" placeholder="New deck name…" style="flex:1"><button id="mk-deck">＋ Deck</button></div>
+    <div class="row">
+      <button id="imp" class="ghost">📥 Import JSON</button><button id="exp" class="ghost">📤 Export deck</button>
+      <input type="file" id="file" accept=".json" class="mut" style="background:none;border:0">
+    </div>
+    <div id="decks"></div>
+  </div>
+</div>
+
+<div id="study-view" class="hidden">
+  <div class="row"><button id="back" class="ghost">← Decks</button><span class="tag" id="deck-name"></span><span class="tag due" id="due-info"></span></div>
+  <div id="flip" title="click to flip">Add cards to this deck first.</div>
+  <div class="row" style="justify-content:center" id="grade-row">
+    <button class="again" data-g="1">Again</button><button class="good" data-g="2">Good</button><button class="easy" data-g="3">Easy</button>
+  </div>
+  <div class="card">
+    <h2 style="font-size:1rem;margin-bottom:6px">➕ Add card</h2>
+    <div class="row"><textarea id="f" placeholder="Front (question)"></textarea></div>
+    <div class="row"><textarea id="b" placeholder="Back (answer)"></textarea></div>
+    <button id="add-card">Add card</button>
+    <div class="mut" id="c-list" style="margin-top:10px"></div>
+  </div>
+</div>
+
+<script>
+const $=id=>document.getElementById(id);
+const KEY="cards.v1";
+let db=JSON.parse(localStorage.getItem(KEY)||'{"decks":[]}');
+const save=()=>localStorage.setItem(KEY,JSON.stringify(db));
+const today=()=>new Date().toISOString().slice(0,10);
+const cur=()=>db.decks.find(d=>d.id===view.id);
+
+/* scheduling: new/easy interval growth + ease factor (SM-2 lite) */
+function grade(card,g){
+  if(g===1){card.streak=0;card.ease=Math.max(1.3,(card.ease||2.5)-0.2);card.due=today();}
+  else{card.streak=(card.streak||0)+1;card.ease=Math.min(3,(card.ease||2.5)+(g===3?0.15:0));
+    let iv=card.streak===1?1:card.streak===2?3:Math.round(6*Math.pow(card.ease||2.5,Math.min(card.streak-2,5)));
+    if(g===3&&card.streak===1)iv=4;
+    const d=new Date();d.setDate(d.getDate()+iv);card.due=d.toISOString().slice(0,10);}
+  save();
+}
+
+let view={id:null,open:null};
+function renderDecks(){
+  $("decks").innerHTML=db.decks.map(d=>{
+    const due=d.cards.filter(c=>(c.due||"2000-01-01")<=today()).length;
+    return `<div class="deck" data-open="${d.id}"><div><b>${d.name}</b> <span class="tag">${d.cards.length} cards</span>${due?` <span class="tag due">${due} due</span>`:""}</div>
+    <button class="ghost" data-del="${d.id}" style="padding:2px 10px">✕</button></div>`;}).join("")
+    ||'<p class="mut">No decks yet — make one above, or import JSON.</p>';
+  $("decks").onclick=e=>{
+    const del=e.target.closest("[data-del]");
+    if(del){db.decks=db.decks.filter(d=>d.id!==del.dataset.del);save();renderDecks();return;}
+    const op=e.target.closest("[data-open]"); if(op)openDeck(op.dataset.open);
+  };
+}
+function openDeck(id){view.id=id;$("list-view").classList.add("hidden");$("study-view").classList.remove("hidden");renderStudy();}
+$("back").onclick=()=>{$("study-view").classList.add("hidden");$("list-view").classList.remove("hidden");view.id=null;renderDecks();};
+$("mk-deck").onclick=()=>{const v=$("nd").value.trim();if(!v)return;db.decks.push({id:"d"+Date.now(),name:v,cards:[]});$("nd").value="";save();renderDecks();};
+$("imp").onclick=()=>$("file").click();
+$("file").onchange=e=>{
+  const f=e.target.files[0];if(!f)return;const r=new FileReader();
+  r.onload=()=>{try{
+    const j=JSON.parse(r.result);
+    const cards=(Array.isArray(j)?j:j.cards).filter(c=>c.front).map(c=>({front:c.front,back:c.back||"",streak:c.streak||0,ease:c.ease||2.5,due:c.due||today()}));
+    if(!cards.length)throw 0;
+    db.decks.push({id:"d"+Date.now(),name:f.name.replace(/\.json$/i,""),cards});save();renderDecks();
+  }catch{alert("Couldn't parse that file.")}};r.readAsText(f);
+};
+$("exp").onclick=()=>{const d=cur();if(!d)return;
+  const blob=new Blob([JSON.stringify(d,null,2)],{type:"application/json"});
+  const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download=d.name+".json";a.click();};
+
+function renderStudy(){
+  const d=cur();if(!d)return;
+  $("deck-name").textContent=d.name;
+  const due=d.cards.filter(c=>(c.due||"2000-01-01")<=today());
+  $("due-info").textContent=due.length?`${due.length} due`:"nothing due";
+  $("flip").dataset.open=due.length?"1":"";
+  if(!due.length){$("flip").textContent=d.cards.length?"✅ All caught up!\n\n(come back tomorrow)":"Add cards to this deck first.";$("grade-row").style.visibility="hidden";return;}
+  $("grade-row").style.visibility="hidden";
+  const c=due[0];view.card=c;view.showingBack=false;
+  $("flip").textContent=c.front;
+  $("c-list").innerHTML=d.cards.map((c,i)=>`<div>• ${c.front} ${c.back?"→ "+c.back.slice(0,60):""} <button class="ghost" data-rc="${i}" style="padding:0 8px">✕</button></div>`).join("");
+  $("c-list").onclick=e=>{const b=e.target.closest("[data-rc]");if(!b)return;d.cards.splice(+b.dataset.rc,1);save();renderStudy();};
+}
+$("flip").onclick=()=>{
+  if(!$("flip").dataset.open)return;
+  if(!view.showingBack){$("flip").textContent=view.card.back||"—";view.showingBack=true;$("grade-row").style.visibility="visible";}
+};
+$("grade-row").addEventListener("click",e=>{
+  const b=e.target.closest("[data-g]");if(!b||!view.showingBack)return;
+  grade(view.card,+b.dataset.g);renderStudy();
+});
+$("add-card").onclick=()=>{
+  const f=$("f").value.trim(),b=$("b").value.trim();if(!f)return;
+  cur().cards.push({front:f,back:b,streak:0,ease:2.5,due:today()});
+  $("f").value="";$("b").value="";save();renderStudy();
+};
+renderDecks();
+</script>
+</body>
+</html>
