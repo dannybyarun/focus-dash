@@ -59,7 +59,7 @@ $("saveBtn").onclick=()=>{
   setTimeout(()=>b.textContent="💾 Save profile",1200);
 };
 $("addLink").onclick=()=>{
-  const wrap=$(".links");
+  const wrap=document.querySelector(".links");
   const row=document.createElement("div"); row.className="link-row";
   const inp=document.createElement("input"); inp.type="text"; inp.placeholder="https://…";
   row.appendChild(inp); wrap.insertBefore(row, $("addLink"));

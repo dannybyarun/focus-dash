@@ -30,6 +30,13 @@
   .status{display:flex;gap:1rem;margin-top:.8rem;font-size:.75rem;color:var(--dim)}
   .sync-toggle{display:flex;align-items:center;gap:.4rem}
   .template-btns{display:flex;gap:.4rem;flex-wrap:wrap;margin-left:auto}
+  /* syntax highlight */
+  .hljs{background:none!important}
+  .hljs-keyword,.hljs-selector-tag,.hljs-built_in,.hljs-name,.hljs-tag{color:#ff7b72}
+  .hljs-string,.hljs-title,.hljs-section,.hljs-attribute,.hljs-literal,.hljs-template-tag,.hljs-template-variable,.hljs-type,.hljs-addition{color:#79c0ff}
+  .hljs-comment,.hljs-quote,.hljs-deletion,.hljs-meta{color:#8b98a5}
+  .hljs-number,.hljs-regexp,.hljs-symbol,.hljs-variable,.hljs-template-variable,.hljs-link{color:#ffa657}
+  .hljs-function,.hljs-class,.hljs-title.class_{color:#d2a8ff}
 </style>
 </head>
 <body>
@@ -202,22 +209,271 @@ function renderTemplates(){
   });
 }
 
-const MARKED_OPTIONS = {
-  breaks: true,
-  gfm: true,
-  headerIds: true,
-  mangle: false
-};
-
+/* --- Minimal Markdown Parser (CommonMark subset) --- */
 function markdownToHtml(md){
-  return marked.parse(md, MARKED_OPTIONS);
+  if(!md) return "";
+  
+  // Escape HTML first
+  const esc = s => s.replace(/&/g,"&").replace(/</g,"<").replace(/>/g,">");
+  
+  let lines = md.split("\n");
+  let html = "";
+  let inCode = false;
+  let codeLang = "";
+  let codeBuffer = [];
+  let inList = false;
+  let listType = null;
+  let inBlockquote = false;
+  
+  const closeCode = () => {
+    if(inCode){
+      const code = codeBuffer.join("\n");
+      const highlighted = highlightCode(code, codeLang);
+      html += `<pre><code class="language-${esc(codeLang)}">${highlighted}</code></pre>\n`;
+      inCode = false;
+      codeBuffer = [];
+      codeLang = "";
+    }
+  };
+  
+  const closeList = () => {
+    if(inList){
+      html += listType === "ol" ? "</ol>\n" : "</ul>\n";
+      inList = false;
+      listType = null;
+    }
+  };
+  
+  const closeBlockquote = () => {
+    if(inBlockquote){
+      html += "</blockquote>\n";
+      inBlockquote = false;
+    }
+  };
+
+  for(let i=0;i<lines.length;i++){
+    let line = lines[i];
+    
+    // Code fence
+    const fenceMatch = line.match(/^```(\w*)/);
+    if(fenceMatch){
+      closeCode();
+      inCode = true;
+      codeLang = fenceMatch[1] || "text";
+      continue;
+    }
+    if(inCode && line.startsWith("```")){
+      closeCode();
+      continue;
+    }
+    if(inCode){
+      codeBuffer.push(line);
+      continue;
+    }
+    
+    // Headers
+    const hMatch = line.match(/^(#{1,6})\s+(.*)/);
+    if(hMatch){
+      closeList(); closeBlockquote();
+      const level = hMatch[1].length;
+      html += `<h${level}>${inlineParse(esc(hMatch[2]))}</h${level}>\n`;
+      continue;
+    }
+    
+    // Horizontal rule
+    if(/^(-{3,}|\*{3,}|_{3,})\s*$/.test(line)){
+      closeList(); closeBlockquote();
+      html += "<hr>\n";
+      continue;
+    }
+    
+    // Blockquote
+    const bqMatch = line.match(/^>\s?(.*)/);
+    if(bqMatch){
+      closeList();
+      if(!inBlockquote){ html += "<blockquote>\n"; inBlockquote = true; }
+      html += inlineParse(esc(bqMatch[1])) + "<br>\n";
+      continue;
+    } else {
+      closeBlockquote();
+    }
+    
+    // Lists
+    const ulMatch = line.match(/^(\s*)([-*+])\s+(.*)/);
+    const olMatch = line.match(/^(\s*)(\d+)\.\s+(.*)/);
+    if(ulMatch || olMatch){
+      if(!inList || (ulMatch && listType==="ol") || (olMatch && listType==="ul")){
+        closeList();
+        inList = true;
+        listType = ulMatch ? "ul" : "ol";
+        html += listType === "ol" ? "<ol>\n" : "<ul>\n";
+      }
+      const content = ulMatch ? ulMatch[3] : olMatch[3];
+      html += `<li>${inlineParse(esc(content))}</li>\n`;
+      continue;
+    } else {
+      closeList();
+    }
+    
+    // Table
+    const pipeMatch = line.match(/^\|(.*)\|$/);
+    if(pipeMatch && i+1 < lines.length && /^\|[\s\-\|:]+\|$/.test(lines[i+1])){
+      closeList(); closeBlockquote();
+      const headers = pipeMatch[1].split("|").map(c=>c.trim());
+      const alignRow = lines[i+1];
+      const aligns = alignRow.split("|").slice(1,-1).map(c=>{
+        const t = c.trim();
+        if(t.startsWith(":") && t.endsWith(":")) return ' style="text-align:center"';
+        if(t.endsWith(":")) return ' style="text-align:right"';
+        return "";
+      });
+      html += "<table><thead><tr>";
+      headers.forEach((h,idx)=>html+=`<th${aligns[idx]||""}>${inlineParse(esc(h))}</th>`);
+      html += "</tr></thead><tbody>";
+      i+=2;
+      while(i<lines.length && (line=lines[i]).match(/^\|.*\|$/)){
+        const cells = line.split("|").slice(1,-1).map(c=>c.trim());
+        html += "<tr>";
+        cells.forEach((c,idx)=>html+=`<td${aligns[idx]||""}>${inlineParse(esc(c))}</td>`);
+        html += "</tr>";
+        i++;
+      }
+      i--;
+      html += "</tbody></table>\n";
+      continue;
+    }
+    
+    // Paragraph / text
+    if(line.trim() === ""){
+      html += "\n";
+    } else {
+      closeList(); closeBlockquote();
+      html += `<p>${inlineParse(esc(line))}</p>\n`;
+    }
+  }
+  
+  closeCode(); closeList(); closeBlockquote();
+  
+  // Post-process: merge consecutive <p> separated by single \n into one with <br>
+  html = html.replace(/<\/p>\n<p>/g, "</p>\n<p>");
+  
+  return html;
+}
+
+function inlineParse(text){
+  // Code spans
+  text = text.replace(/`([^`]+)`/g, '<code>$1</code>');
+  // Bold
+  text = text.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+  text = text.replace(/__(.+?)__/g, '<strong>$1</strong>');
+  // Italic
+  text = text.replace(/\*(.+?)\*/g, '<em>$1</em>');
+  text = text.replace(/_(.+?)_/g, '<em>$1</em>');
+  // Strikethrough
+  text = text.replace(/~~(.+?)~~/g, '<del>$1</del>');
+  // Links
+  text = text.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+  // Images
+  text = text.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, '<img src="$2" alt="$1" loading="lazy">');
+  // Auto-link URLs
+  text = text.replace(/(^|\s)(https?:\/\/[^\s<]+)/g, '$1<a href="$2" target="_blank" rel="noopener">$2</a>');
+  return text;
+}
+
+/* --- Minimal Syntax Highlighter --- */
+const HL_KEYWORDS = new Set(["if","else","for","while","return","function","const","let","var","class","extends","import","export","from","as","async","await","try","catch","finally","throw","new","this","super","typeof","instanceof","in","of","void","delete","yield","default","case","switch","break","continue","do","interface","type","enum","public","private","protected","static","abstract","readonly","declare","module","namespace","require","define"]);
+const HL_TYPES = new Set(["string","number","boolean","void","null","undefined","any","never","unknown","object","Array","Promise","Map","Set","RegExp","Date","Error","JSON","Math","console","window","document","fetch","localStorage","sessionStorage"]);
+const HL_LITERALS = new Set(["true","false","null","undefined","NaN","Infinity"]);
+
+function highlightCode(code, lang){
+  if(!code) return "";
+  const esc = s => s.replace(/&/g,"&").replace(/</g,"<").replace(/>/g,">");
+  const out = [];
+  
+  // Simple state machine for common patterns
+  let i = 0;
+  while(i < code.length){
+    const ch = code[i];
+    
+    // Comments
+    if(ch === "/" && i+1 < code.length && code[i+1] === "/"){
+      let j = i;
+      while(j < code.length && code[j] !== "\n") j++;
+      out.push(`<span class="hljs-comment">${esc(code.slice(i,j))}</span>`);
+      i = j;
+      continue;
+    }
+    if(ch === "/" && i+1 < code.length && code[i+1] === "*"){
+      let j = i+2;
+      while(j < code.length-1 && !(code[j] === "*" && code[j+1] === "/")) j++;
+      j += 2;
+      out.push(`<span class="hljs-comment">${esc(code.slice(i,j))}</span>`);
+      i = j;
+      continue;
+    }
+    
+    // Strings
+    if(ch === '"' || ch === "'" || ch === "`"){
+      const quote = ch;
+      let j = i+1;
+      let escaped = false;
+      while(j < code.length){
+        if(code[j] === "\\"){ escaped = !escaped; j++; continue; }
+        if(!escaped && code[j] === quote) break;
+        escaped = false;
+        j++;
+      }
+      j++;
+      out.push(`<span class="hljs-string">${esc(code.slice(i,j))}</span>`);
+      i = j;
+      continue;
+    }
+    
+    // Numbers
+    if(/\d/.test(ch) && (i===0 || !/[a-zA-Z_$]/.test(code[i-1]))){
+      let j = i;
+      while(j < code.length && /[\d\.eE+\-]/.test(code[j])) j++;
+      out.push(`<span class="hljs-number">${esc(code.slice(i,j))}</span>`);
+      i = j;
+      continue;
+    }
+    
+    // Identifiers / keywords
+    if(/[a-zA-Z_$]/.test(ch)){
+      let j = i;
+      while(j < code.length && /[a-zA-Z0-9_$]/.test(code[j])) j++;
+      const word = code.slice(i,j);
+      let cls = "";
+      if(HL_KEYWORDS.has(word)) cls = "hljs-keyword";
+      else if(HL_TYPES.has(word)) cls = "hljs-type";
+      else if(HL_LITERALS.has(word)) cls = "hljs-literal";
+      else if(j < code.length && code[j] === "(") cls = "hljs-title";
+      out.push(cls ? `<span class="${cls}">${esc(word)}</span>` : esc(word));
+      i = j;
+      continue;
+    }
+    
+    // Operators / punctuation
+    out.push(esc(ch));
+    i++;
+  }
+  
+  return out.join("");
+}
+
+function renderTemplates(){
+  $("templates").innerHTML = TEMPLATES.map((t,i)=>`<button data-i="${i}">${t.name}</button>`).join("");
+  $("templates").querySelectorAll("button").forEach(b=>b.onclick=()=>{
+    if($("editor").value.trim() && !confirm("Replace current content?")) return;
+    $("editor").value = TEMPLATES[+b.dataset.i].content;
+    update();
+  });
 }
 
 function update(){
   const md = $("editor").value;
   $("preview").innerHTML = markdownToHtml(md);
   updateStats(md);
-  hljs.highlightAll();
 }
 
 function updateStats(md){
@@ -274,7 +530,6 @@ $("preview").addEventListener("scroll",()=>{
   $("editor").scrollTop = pct * ($("editor").scrollHeight - $("editor").clientHeight);
 });
 
-loadSaved();
 function loadSaved(){
   try{
     const saved = localStorage.getItem("pocketos.markdown");
@@ -287,16 +542,5 @@ setInterval(()=>{ try{localStorage.setItem("pocketos.markdown", $("editor").valu
 renderTemplates();
 applyTheme();
 </script>
-<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/lib/highlight.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/lib/languages/javascript.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/lib/languages/python.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/lib/languages/bash.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/lib/languages/json.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/lib/languages/html.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/lib/languages/css.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/lib/languages/sql.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/lib/languages/go.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/lib/languages/rust.min.js"></script>
 </body>
 </html>

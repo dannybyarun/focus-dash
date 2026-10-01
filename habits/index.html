@@ -60,75 +60,12 @@ function streakFor(habit){
     const k=d.toDateString();
     if(dates.has(k)){ streak++; max=Math.max(max,streak); }
     else if(k!==todayKey){ break; }
-    else{ /* today not done yet, continue checking yesterday */ }
     if(streak>365) break;
   }
   return {current:streak, best:Math.max(max, habit.bestStreak||0)};
 }
 
-function render(){
-  const habits = load();
-  $("totalHabits").textContent = habits.length;
-  const today = habits.filter(h=>(h.done||[]).includes(todayKey)).length;
-  $("doneToday").textContent = today;
-  $("bestStreak").textContent = Math.max(...habits.map(h=>streakFor(h).best), 0);
-
-  if(!habits.length){
-    $("list").innerHTML = '<div class="empty">No habits yet. Add one above to start tracking.</div>';
-    return;
-  }
-  $("list").innerHTML = habits.map((h,i)=>{
-    const {current, best} = streakFor(h);
-    const cal = calendarHTML(h);
-    return `<div class="habit">
-      <div class="habit-header">
-        <span class="habit-name">${esc(h.name)}</span>
-        <span class="habit-streak">🔥 ${current}</span>
-        <button class="habit-del" data-i="${i}" title="Delete">✕</button>
-      </div>
-      <div class="cal-label">${["Su","Mo","Tu","We","Th","Fr","Sa"].map(d=>`<div>${d}</div>`).join("")}</div>
-      <div class="calendar">${cal}</div>
-    </div>`;
-  }).join("");
-
-  $("list").querySelectorAll(".habit-del").forEach(b=>b.onclick=()=>{
-    if(confirm("Delete this habit?")){
-      const habits=load(); habits.splice(+b.dataset.i,1); save(habits); render();
-    }
-  });
-  $("list").querySelectorAll(".cal-day:not(.label)").forEach(d=>d.onclick=()=>{
-    if(d.classList.contains("future")) return;
-    const i = +d.dataset.i;
-    const day = d.dataset.day;
-    const habits=load();
-    const h=habits[i];
-    h.done = h.done||[];
-    const idx = h.done.indexOf(day);
-    if(idx===-1) h.done.push(day); else h.done.splice(idx,1);
-    h.done.sort();
-    save(habits); render();
-  });
-}
-
-function calendarHTML(habit){
-  const today = new Date();
-  const first = new Date(today.getFullYear(), today.getMonth(), 1);
-  const startDow = first.getDay(); // 0=Sun
-  const daysInMonth = new Date(today.getFullYear(), today.getMonth()+1, 0).getDate();
-  const doneSet = new Set(habit.done||[]);
-  let html="";
-  for(let i=0;i<startDow;i++) html+=`<div class="cal-day"></div>`;
-  for(let d=1;d<=daysInMonth;d++){
-    const key = new Date(today.getFullYear(), today.getMonth(), d).toDateString();
-    const isFuture = d > today.getDate();
-    const done = doneSet.has(key);
-    html+=`<div class="cal-day${done?' done':''}${key===todayKey?' today':''}${isFuture?' future':''}" data-i="${habitsIndex}" data-day="${key}">${d}</div>`;
-  }
-  return html;
-}
-let habitsIndex=0;
-function calendarHTML2(habit, idx){
-  habitsIndex=idx;
+function calendarHTML(habit, idx){
   const today = new Date();
   const first = new Date(today.getFullYear(), today.getMonth(), 1);
   const startDow = first.getDay();
@@ -165,7 +102,7 @@ function render(){
         <button class="habit-del" data-i="${i}" title="Delete">✕</button>
       </div>
       <div class="cal-label">${["Su","Mo","Tu","We","Th","Fr","Sa"].map(d=>`<div>${d}</div>`).join("")}</div>
-      <div class="calendar">${calendarHTML2(h,i)}</div>
+      <div class="calendar">${calendarHTML(h,i)}</div>
     </div>`;
   }).join("");
 
