@@ -1,0 +1,607 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Adventure Land</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:system-ui,sans-serif;background:#1a1a2e;color:#eee;min-height:100vh;display:flex;flex-direction:column;align-items:center;overflow:hidden}
+#ui{position:fixed;top:0;left:0;right:0;z-index:10;display:flex;justify-content:space-between;padding:12px 20px;background:rgba(0,0,0,0.7);border-bottom:2px solid #333}
+#stats{display:flex;gap:20px;font-size:14px}
+.stat{display:flex;align-items:center;gap:6px;background:rgba(255,255,255,0.1);padding:6px 12px;border-radius:20px}
+.stat.health{color:#ff4444;border:1px solid #ff4444}
+.stat.gold{color:#ffd700;border:1px solid #ffd700}
+.stat.xp{color:#44ff44;border:1px solid #44ff44}
+.stat.level{color:#8888ff;border:1px solid #8888ff}
+#mini-map{width:150px;height:150px;background:rgba(0,0,0,0.5);border:1px solid #333;border-radius:8px;position:relative;overflow:hidden}
+#mini-map canvas{width:100%;height:100%;display:block}
+#chat{position:fixed;bottom:0;left:0;right:0;z-index:10;background:rgba(0,0,0,0.8);border-top:1px solid #333;max-height:200px;display:flex;flex-direction:column}
+#chat-log{flex:1;overflow-y:auto;padding:8px 12px;font-size:13px;max-height:120px;display:flex;flex-direction:column;gap:4px}
+.chat-msg{padding:4px 8px;background:rgba(255,255,255,0.05);border-radius:4px;animation:fadeIn 0.3s}
+.chat-msg.system{color:#88ff88;font-style:italic}
+.chat-msg.player{color:#ffd700}
+@keyframes fadeIn{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
+#chat-input{width:100%;padding:10px 12px;background:rgba(255,255,255,0.1);border:none;color:#eee;font-size:14px;outline:none}
+#chat-input::placeholder{color:#666}
+#canvas-container{position:relative;flex:1;display:flex;justify-content:center;align-items:center;touch-action:none}
+#game-canvas{display:block;max-width:100%;max-height:100vh}
+#touch-controls{display:none;position:fixed;bottom:80px;left:0;right:0;z-index:5;padding:10px;pointer-events:none}
+@media (pointer:coarse){
+#touch-controls{display:flex;justify-content:space-between;padding:0 20px 20px}
+.touch-btn{width:60px;height:60px;border-radius:50%;background:rgba(255,255,255,0.2);border:2px solid rgba(255,255,255,0.3);color:#fff;font-size:24px;display:flex;align-items:center;justify-content:center;pointer-events:auto;touch-action:manipulation;user-select:none}
+.touch-btn:active{background:rgba(255,255,255,0.4)}
+#touch-attack{width:80px;height:80px;font-size:28px}
+}
+#mobile-hint{position:fixed;bottom:10px;left:50%;transform:translateX(-50%);color:#666;font-size:12px;pointer-events:none;z-index:20}
+@media (pointer:fine){#mobile-hint{display:none}}
+</style>
+</head>
+<body>
+<div id="ui">
+<div id="stats">
+<div class="stat health">❤ <span id="hp">100</span>/<span id="maxhp">100</span></div>
+<div class="stat gold">💰 <span id="gold">0</span></div>
+<div class="stat xp">✨ <span id="xp">0</span>/<span id="xpnext">100</span></div>
+<div class="stat level">🏆 Lv<span id="level">1</span></div>
+</div>
+<canvas id="mini-map" width="150" height="150"></canvas>
+</div>
+
+<div id="canvas-container">
+<canvas id="game-canvas"></canvas>
+</div>
+
+<div id="touch-controls">
+<div>
+<button class="touch-btn" id="btn-up">▲</button>
+<br>
+<button class="touch-btn" id="btn-left">◄</button>
+<button class="touch-btn" id="btn-down">▼</button>
+<button class="touch-btn" id="btn-right">►</button>
+</div>
+<button class="touch-btn" id="touch-attack">⚔</button>
+</div>
+
+<div id="mobile-hint">Use virtual buttons to move, tap ⚔ to attack</div>
+
+<div id="chat">
+<div id="chat-log"></div>
+<input type="text" id="chat-input" placeholder="Type to chat (local echo)..." autocomplete="off">
+</div>
+
+<script>
+// ============ GAME CONFIG ============
+const CONFIG = {
+worldW: 3000, worldH: 2000,
+canvasW: 960, canvasH: 640,
+tileSize: 40,
+playerSpeed: 4,
+playerRadius: 16,
+attackRange: 50,
+attackCooldown: 400,
+enemyTypes: [
+{name:'Goblin',hp:30,color:'#8b4513',r:14,speed:1.2,xp:10,gold:[3,8],icon:'👺'},
+{name:'Orc',hp:60,color:'#556b2f',r:18,speed:0.9,xp:25,gold:[10,20],icon:'👹'},
+{name:'Slime',hp:20,color:'#00ff7f',r:16,speed:1.5,xp:8,gold:[2,5],icon:'💚'},
+{name:'Skeleton',hp:40,color:'#c0c0c0',r:15,speed:1.1,xp:15,gold:[5,12],icon:'💀'}
+],
+itemTypes: [
+{name:'Sword',type:'weapon',icon:'⚔',color:'#aaa',rarity:'common',effect:'dmg+5'},
+{name:'Potion',type:'consumable',icon:'🧪',color:'#ff69b4',rarity:'common',effect:'heal 30'},
+{name:'Gold',type:'currency',icon:'💰',color:'#ffd700',rarity:'common',effect:'+10-25 gold'},
+{name:'Gem',type:'currency',icon:'💎',color:'#00ffff',rarity:'rare',effect:'+50 gold'},
+{name:'Shield',type:'armor',icon:'🛡',color:'#87ceeb',rarity:'uncommon',effect:'def+3'},
+{name:'Boots',type:'armor',icon:'👢',color:'#8b4513',rarity:'uncommon',effect:'spd+1'}
+],
+maxEnemies: 30,
+maxItems: 20,
+spawnMargin: 300
+};
+
+// ============ GAME STATE ============
+const canvas = document.getElementById('game-canvas');
+const ctx = canvas.getContext('2d');
+const miniCanvas = document.getElementById('mini-map');
+const miniCtx = miniCanvas.getContext('2d');
+
+let camera = {x:0,y:0};
+let player = {
+x:CONFIG.worldW/2, y:CONFIG.worldH/2,
+hp:100, maxHp:100,
+gold:0, xp:0, level:1, xpToNext:100,
+damage:10, defense:0, speed:CONFIG.playerSpeed,
+direction:0, lastAttack:0,
+invincible:0
+};
+let enemies = [];
+let items = [];
+let particles = [];
+let screenShake = 0;
+let keys = {};
+let touchState = {up:false,down:false,left:false,right:false,attack:false};
+let lastTime = 0;
+let frameCount = 0;
+
+// ============ INIT ============
+function resize(){
+const container = document.getElementById('canvas-container');
+const rect = container.getBoundingClientRect();
+const scale = Math.min(rect.width/CONFIG.canvasW, rect.height/CONFIG.canvasH, 1);
+canvas.width = CONFIG.canvasW;
+canvas.height = CONFIG.canvasH;
+canvas.style.width = (CONFIG.canvasW*scale)+'px';
+canvas.style.height = (CONFIG.canvasH*scale)+'px';
+}
+window.addEventListener('resize',resize);
+resize();
+
+// Spawn initial enemies & items
+for(let i=0;i<CONFIG.maxEnemies;i++) spawnEnemy();
+for(let i=0;i<CONFIG.maxItems;i++) spawnItem();
+
+// ============ INPUT ============
+window.addEventListener('keydown',e=>keys[e.key.toLowerCase()]=true);
+window.addEventListener('keyup',e=>keys[e.key.toLowerCase()]=false);
+
+canvas.addEventListener('click',()=>{
+if(player.hp>0) tryAttack();
+});
+
+['up','down','left','right','attack'].forEach(id=>{
+const btn=document.getElementById('btn-'+id)||document.getElementById('touch-attack');
+if(btn){
+btn.addEventListener('touchstart',e=>{e.preventDefault();touchState[id]=true},{passive:false});
+btn.addEventListener('touchend',e=>{e.preventDefault();touchState[id]=false},{passive:false});
+btn.addEventListener('mousedown',e=>{e.preventDefault();touchState[id]=true});
+btn.addEventListener('mouseup',e=>{e.preventDefault();touchState[id]=false});
+btn.addEventListener('mouseleave',e=>{touchState[id]=false});
+}
+});
+
+// Chat (local echo)
+document.getElementById('chat-input').addEventListener('keypress',e=>{
+if(e.key==='Enter'){
+const msg=e.target.value.trim();
+if(msg){
+addChat(msg,'player');
+e.target.value='';
+// Bot responses
+setTimeout(()=>addChat(['Nice!','Good luck!','Watch out!','Keep going!'][Math.random()*4|0],'system'),500+Math.random()*1000);
+}
+}
+});
+
+function addChat(msg,type){
+const log=document.getElementById('chat-log');
+const div=document.createElement('div');
+div.className='chat-msg '+(type==='system'?'system':'player');
+div.textContent=(type==='system'?'[System] ':'You: ')+msg;
+log.appendChild(div);
+log.scrollTop=log.scrollHeight;
+if(log.children.length>20)log.removeChild(log.children[0]);
+}
+addChat('Welcome to Adventure Land!','system');
+
+// ============ ENTITY SPAWNING ============
+function spawnEnemy(){
+const type=CONFIG.enemyTypes[Math.random()*CONFIG.enemyTypes.length|0];
+const margin=CONFIG.spawnMargin;
+enemies.push({
+x:margin+Math.random()*(CONFIG.worldW-2*margin),
+y:margin+Math.random()*(CONFIG.worldH-2*margin),
+type, hp:type.hp, maxHp:type.hp,
+lastHit:0, state:'wander', wanderTimer:0, targetAngle:0
+});
+}
+
+function spawnItem(x,y){
+const type=CONFIG.itemTypes[Math.random()*CONFIG.itemTypes.length|0];
+if(Math.random()<0.05&&type.rarity!=='rare')return spawnItem(x,y); // reroll rare
+items.push({
+x:x||Math.random()*CONFIG.worldW,
+y:y||Math.random()*CONFIG.worldH,
+type, life:30000, bob:Math.random()*Math.PI*2
+});
+}
+
+function dropLoot(x,y){
+const gold=10+Math.random()*20|0;
+player.gold+=gold;
+for(let i=0;i<3;i++)createParticle(x,y,'gold');
+if(Math.random()<0.4)spawnItem(x,y);
+}
+
+// ============ PARTICLES ============
+function createParticle(x,y,type,count=1){
+for(let i=0;i<count;i++){
+let p={x,y,vx:(Math.random()-0.5)*6,vy:(Math.random()-0.5)*6-1,life:1,decay:0.02+Math.random()*0.02,size:4+Math.random()*4};
+if(type==='hit'){p.color='#ff4444';p.vy-=2;p.size=3;}
+else if(type==='gold'){p.color='#ffd700';p.vy=-1-Math.random()*2;p.size=5;}
+else if(type==='heal'){p.color='#44ff44';p.vy=-1;p.size=4;}
+else if(type==='xp'){p.color='#8888ff';p.vy=-1.5;p.size=3;}
+else{p.color='#fff';}
+particles.push(p);
+}
+}
+
+// ============ COMBAT ============
+function tryAttack(){
+const now=Date.now();
+if(now-player.lastAttack<CONFIG.attackCooldown)return;
+player.lastAttack=now;
+
+let hit=false;
+enemies.forEach(e=>{
+const dx=e.x-player.x, dy=e.y-player.y;
+const dist=Math.hypot(dx,dy);
+if(dist<CONFIG.attackRange+playerRadius+e.type.r){
+const angle=Math.atan2(dy,dx);
+if(Math.abs(normalizeAngle(angle-player.direction))<Math.PI/3){
+e.hp-=player.damage;
+hit=true;
+createParticle(e.x,e.y,'hit',5);
+screenShake=8;
+if(e.hp<=0){
+dropLoot(e.x,e.y);
+gainXP(e.type.xp);
+e.dead=true;
+createParticle(e.x,e.y,'xp',8);
+}
+}
+}
+});
+if(!hit)createParticle(player.x+Math.cos(player.direction)*20,player.y+Math.sin(player.direction)*20,'hit',3);
+}
+
+function takeDamage(amount,sourceX,sourceY){
+if(player.invincible>0)return;
+player.hp-=Math.max(1,amount-player.defense);
+player.invincible=60;
+screenShake=12;
+const angle=Math.atan2(player.y-sourceY,player.x-sourceX);
+player.x+=Math.cos(angle)*20;
+player.y+=Math.sin(angle)*20;
+clampPlayer();
+createParticle(player.x,player.y,'hit',10);
+if(player.hp<=0){
+player.hp=0;
+addChat('You were defeated! Respawning...','system');
+setTimeout(respawn,2000);
+}
+}
+
+function respawn(){
+player.x=CONFIG.worldW/2;
+player.y=CONFIG.worldH/2;
+player.hp=player.maxHp;
+player.invincible=120;
+screenShake=20;
+}
+
+function gainXP(amount){
+player.xp+=amount;
+createParticle(player.x,player.y-30,'xp',5);
+while(player.xp>=player.xpToNext){
+player.xp-=player.xpToNext;
+player.level++;
+player.xpToNext=Math.floor(player.xpToNext*1.5);
+player.maxHp+=10;
+player.hp=player.maxHp;
+player.damage+=2;
+addChat(`Level up! Now level ${player.level}!`,`system`);
+createParticle(player.x,player.y,'heal',15);
+}
+}
+
+// ============ UPDATE ============
+function update(dt){
+frameCount++;
+
+// Player movement
+let moving=false;
+const moveSpeed=player.speed*(player.invincible>0?0.5:1);
+
+if(keys['w']||keys['arrowup']||touchState.up){
+player.y-=moveSpeed; player.direction=-Math.PI/2; moving=true;
+}
+if(keys['s']||keys['arrowdown']||touchState.down){
+player.y+=moveSpeed; player.direction=Math.PI/2; moving=true;
+}
+if(keys['a']||keys['arrowleft']||touchState.left){
+player.x-=moveSpeed; player.direction=Math.PI; moving=true;
+}
+if(keys['d']||keys['arrowright']||touchState.right){
+player.x+=moveSpeed; player.direction=0; moving=true;
+}
+if((keys[' ']||keys['space']||touchState.attack)&&player.hp>0){
+tryAttack();
+}
+clampPlayer();
+
+// Camera follow
+camera.x=player.x-CONFIG.canvasW/2;
+camera.y=player.y-CONFIG.canvasH/2;
+camera.x=Math.max(0,Math.min(CONFIG.worldW-CONFIG.canvasW,camera.x));
+camera.y=Math.max(0,Math.min(CONFIG.worldH-CONFIG.canvasH,camera.y));
+
+// Enemies AI
+enemies.forEach(e=>{
+if(e.dead)return;
+const dx=player.x-e.x, dy=player.y-e.y;
+const dist=Math.hypot(dx,dy);
+
+if(dist<300){
+e.state='chase';
+const targetAngle=Math.atan2(dy,dx);
+e.x+=Math.cos(targetAngle)*e.type.speed;
+e.y+=Math.sin(targetAngle)*e.type.speed;
+if(dist<e.type.r+playerRadius+5 && Date.now()-e.lastHit>1000){
+takeDamage(5+e.type.hp/10,e.x,e.y);
+e.lastHit=Date.now();
+}
+}else if(e.state==='chase'){
+e.state='wander';
+e.wanderTimer=60+Math.random()*120|0;
+e.targetAngle=Math.random()*Math.PI*2;
+}
+
+if(e.state==='wander'){
+if(e.wanderTimer-->0){
+e.x+=Math.cos(e.targetAngle)*e.type.speed*0.5;
+e.y+=Math.sin(e.targetAngle)*e.type.speed*0.5;
+}else{
+e.wanderTimer=60+Math.random()*120|0;
+e.targetAngle=Math.random()*Math.PI*2;
+}
+}
+
+// Bounds
+e.x=Math.max(e.type.r,Math.min(CONFIG.worldW-e.type.r,e.x));
+e.y=Math.max(e.type.r,Math.min(CONFIG.worldH-e.type.r,e.y));
+});
+
+// Remove dead enemies, spawn new
+enemies=enemies.filter(e=>!e.dead);
+while(enemies.length<CONFIG.maxEnemies)spawnEnemy();
+
+// Items - pickup
+items.forEach(it=>{
+it.bob+=0.05;
+it.life-=16;
+const dx=it.x-player.x, dy=it.y-player.y;
+if(Math.hypot(dx,dy)<playerRadius+15){
+pickupItem(it);
+it.collected=true;
+}
+});
+items=items.filter(it=>!it.collected&&it.life>0);
+while(items.length<CONFIG.maxItems)spawnItem();
+
+// Particles
+particles.forEach(p=>{
+p.x+=p.vx; p.y+=p.vy; p.vy+=0.1; p.life-=p.decay;
+});
+particles=particles.filter(p=>p.life>0);
+
+// Screen shake decay
+if(screenShake>0)screenShake*=0.9;
+
+// Invincibility
+if(player.invincible>0)player.invincible--;
+
+// Regen
+if(frameCount%300===0&&player.hp>0&&player.hp<player.maxHp){
+player.hp=Math.min(player.maxHp,player.hp+1);
+createParticle(player.x,player.y-20,'heal',1);
+}
+
+// UI update
+document.getElementById('hp').textContent=player.hp;
+document.getElementById('maxhp').textContent=player.maxHp;
+document.getElementById('gold').textContent=player.gold;
+document.getElementById('xp').textContent=player.xp;
+document.getElementById('xpnext').textContent=player.xpToNext;
+document.getElementById('level').textContent=player.level;
+}
+
+function clampPlayer(){
+player.x=Math.max(playerRadius,Math.min(CONFIG.worldW-playerRadius,player.x));
+player.y=Math.max(playerRadius,Math.min(CONFIG.worldH-playerRadius,player.y));
+}
+
+function normalizeAngle(a){
+while(a<= -Math.PI)a+=Math.PI*2;
+while(a>Math.PI)a-=Math.PI*2;
+return a;
+}
+
+function pickupItem(item){
+if(item.type.type==='currency'){
+const amt=item.type.name==='Gold'?10+Math.random()*15|0:50;
+player.gold+=amt;
+addChat(`Found ${amt} gold!`,`system`);
+createParticle(item.x,item.y,'gold',6);
+}else if(item.type.type==='consumable'){
+player.hp=Math.min(player.maxHp,player.hp+30);
+createParticle(item.x,item.y,'heal',6);
+addChat('Drank a potion! +30 HP','system');
+}else{
+addChat(`Found ${item.type.icon} ${item.type.name}! (${item.type.effect})`,`system`);
+createParticle(item.x,item.y,'xp',4);
+}
+}
+
+// ============ RENDER ============
+function render(){
+// Screen shake
+ctx.save();
+if(screenShake>0.5){
+ctx.translate((Math.random()-0.5)*screenShake,(Math.random()-0.5)*screenShake);
+}
+
+// Clear
+ctx.fillStyle='#1a3a1a';
+ctx.fillRect(0,0,CONFIG.canvasW,CONFIG.canvasH);
+
+// Grid pattern
+ctx.strokeStyle='rgba(255,255,255,0.02)';
+ctx.lineWidth=1;
+for(let x=-camera.x%CONFIG.tileSize;x<CONFIG.canvasW;x+=CONFIG.tileSize){
+ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,CONFIG.canvasH);ctx.stroke();
+}
+for(let y=-camera.y%CONFIG.tileSize;y<CONFIG.canvasH;y+=CONFIG.tileSize){
+ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(CONFIG.canvasW,y);ctx.stroke();
+}
+
+// World border
+ctx.strokeStyle='#444';
+ctx.lineWidth=4;
+ctx.strokeRect(-camera.x,-camera.y,CONFIG.worldW,CONFIG.worldH);
+
+// Items
+items.forEach(it=>{
+const sx=it.x-camera.x, sy=it.y-camera.y+Math.sin(it.bob)*4;
+if(sx<-30||sx>CONFIG.canvasW+30||sy<-30||sy>CONFIG.canvasH+30)return;
+ctx.font='24px serif';
+ctx.textAlign='center';
+ctx.textBaseline='middle';
+ctx.shadowColor=it.type.color;
+ctx.shadowBlur=15;
+ctx.fillText(it.type.icon,sx,sy);
+ctx.shadowBlur=0;
+});
+
+// Enemies
+enemies.forEach(e=>{
+const sx=e.x-camera.x, sy=e.y-camera.y;
+if(sx<-50||sx>CONFIG.canvasW+50||sy<-50||sy>CONFIG.canvasH+50)return;
+
+// Body
+ctx.fillStyle=e.type.color;
+ctx.beginPath();
+ctx.arc(sx,sy,e.type.r,0,Math.PI*2);
+ctx.fill();
+
+// Eyes
+ctx.fillStyle='#fff';
+ctx.beginPath();
+ctx.arc(sx-5,sy-4,3,0,Math.PI*2);
+ctx.arc(sx+5,sy-4,3,0,Math.PI*2);
+ctx.fill();
+ctx.fillStyle='#000';
+ctx.beginPath();
+ctx.arc(sx-5,sy-4,1.5,0,Math.PI*2);
+ctx.arc(sx+5,sy-4,1.5,0,Math.PI*2);
+ctx.fill();
+
+// Health bar
+const hpPct=e.hp/e.maxHp;
+ctx.fillStyle='#330000';
+ctx.fillRect(sx-18,sy-e.type.r-10,36,5);
+ctx.fillStyle=hpPct>0.5?'#44ff44':hpPct>0.25?'#ffaa00':'#ff4444';
+ctx.fillRect(sx-18,sy-e.type.r-10,36*hpPct,5);
+
+// Name
+ctx.fillStyle='#fff';
+ctx.font='10px system-ui';
+ctx.textAlign='center';
+ctx.fillText(e.type.name,sx,sy+e.type.r+12);
+});
+
+// Player
+const px=player.x-camera.x, py=player.y-camera.y;
+if(!(px<-30||px>CONFIG.canvasW+30||py<-30||py>CONFIG.canvasH+30)){
+// Invincibility flash
+if(player.invincible>0&&player.invincible%10<5){
+ctx.globalAlpha=0.5;
+}
+
+// Body
+ctx.fillStyle='#44aa44';
+ctx.beginPath();
+ctx.arc(px,py,playerRadius,0,Math.PI*2);
+ctx.fill();
+
+// Outline
+ctx.strokeStyle='#fff';
+ctx.lineWidth=2;
+ctx.stroke();
+
+// Direction indicator
+ctx.strokeStyle='#fff';
+ctx.lineWidth=3;
+ctx.beginPath();
+ctx.moveTo(px,py);
+ctx.lineTo(px+Math.cos(player.direction)*22,py+Math.sin(player.direction)*22);
+ctx.stroke();
+
+// Health bar
+ctx.fillStyle='#330000';
+ctx.fillRect(px-20,py-playerRadius-12,40,5);
+ctx.fillStyle='#44ff44';
+ctx.fillRect(px-20,py-playerRadius-12,40*(player.hp/player.maxHp),5);
+
+ctx.globalAlpha=1;
+}
+
+// Particles
+particles.forEach(p=>{
+const sx=p.x-camera.x, sy=p.y-camera.y;
+if(sx>-10&&sx<CONFIG.canvasW+10&&sy>-10&&sy<CONFIG.canvasH+10){
+ctx.globalAlpha=p.life;
+ctx.fillStyle=p.color;
+ctx.beginPath();
+ctx.arc(sx,sy,p.size*p.life,0,Math.PI*2);
+ctx.fill();
+ctx.globalAlpha=1;
+}
+});
+
+ctx.restore();
+
+// Mini-map
+renderMiniMap();
+}
+
+function renderMiniMap(){
+const scaleX=miniCanvas.width/CONFIG.worldW;
+const scaleY=miniCanvas.height/CONFIG.worldH;
+
+miniCtx.fillStyle='#0a0a0a';
+miniCtx.fillRect(0,0,miniCanvas.width,miniCanvas.height);
+
+// Enemies
+miniCtx.fillStyle='#ff4444';
+enemies.forEach(e=>{
+if(!e.dead)miniCtx.fillRect(e.x*scaleX-1,e.y*scaleY-1,2,2);
+});
+
+// Items
+miniCtx.fillStyle='#ffd700';
+items.forEach(it=>{
+miniCtx.fillRect(it.x*scaleX-1,it.y*scaleY-1,2,2);
+});
+
+// Player
+miniCtx.fillStyle='#44ff44';
+miniCtx.fillRect(player.x*scaleX-2,player.y*scaleY-2,4,4);
+
+// Viewport rect
+miniCtx.strokeStyle='#fff';
+miniCtx.lineWidth=1;
+miniCtx.strokeRect(camera.x*scaleX,camera.y*scaleY,CONFIG.canvasW*scaleX,CONFIG.canvasH*scaleY);
+}
+
+// ============ GAME LOOP ============
+function gameLoop(time){
+const dt=time-lastTime;
+lastTime=time;
+update(dt);
+render();
+requestAnimationFrame(gameLoop);
+}
+requestAnimationFrame(gameLoop);
+</script>
+</body>
+</html>
