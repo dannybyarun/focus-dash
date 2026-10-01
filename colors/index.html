@@ -1,0 +1,361 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Color Tools — PocketOS</title>
+<link rel="stylesheet" href="/shared.css">
+<style>
+  body{padding:1rem 1.2rem}
+  .center{max-width:600px;margin:0 auto}
+  .tabs{display:flex;gap:.4rem;margin-bottom:1rem;flex-wrap:wrap}
+  .tab{padding:.5rem .9rem;border-radius:8px;background:var(--card);border:1px solid var(--line);font-size:.85rem}
+  .tab.active{background:var(--accent);color:#0b0f14;border-color:var(--accent)}
+  .panel{display:none}
+  .panel.active{display:block}
+
+  /* Palette */
+  .palette{display:grid;grid-template-columns:repeat(auto-fill,minmax(100px,1fr));gap:.8rem}
+  .swatch{aspect-ratio:1;border-radius:12px;overflow:hidden;border:1px solid var(--line);position:relative}
+  .swatch:hover .swatch-actions{opacity:1}
+  .swatch-actions{position:absolute;inset:0;background:rgba(0,0,0,.6);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:.4rem;opacity:0;transition:opacity .2s}
+  .swatch-actions button{padding:.4rem .8rem;border-radius:6px;border:none;background:var(--accent);color:#0b0f14;font-weight:600;font-size:.75rem}
+  .swatch-hex{position:absolute;bottom:0;left:0;right:0;padding:.4rem;background:linear-gradient(transparent,rgba(0,0,0,.8));font-size:.7rem;font-family:monospace;color:#fff;text-align:center;text-shadow:0 1px 2px #000}
+  .palette-gen{display:flex;gap:.5rem;margin-bottom:1rem;flex-wrap:wrap}
+  .palette-gen input{flex:1;min-width:140px}
+  .palette-gen select{padding:.6rem .8rem;border-radius:8px;background:var(--inset);border:1px solid var(--line);color:var(--text)}
+
+  /* Contrast */
+  .contrast-row{display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-bottom:1rem}
+  .color-picker{display:flex;flex-direction:column;gap:.4rem}
+  .color-picker label{font-size:.75rem;color:var(--dim);text-transform:uppercase;letter-spacing:.03em}
+  .color-picker input[type="color"]{width:100%;height:60px;border-radius:10px;border:1px solid var(--line);cursor:pointer}
+  .contrast-result{padding:1rem;background:var(--inset);border:1px solid var(--line);border-radius:10px;text-align:center}
+  .contrast-ratio{font-size:2.5rem;font-weight:700;font-family:ui-monospace,monospace}
+  .contrast-badge{display:inline-block;margin-top:.5rem;padding:.3rem .7rem;border-radius:999px;font-size:.7rem;font-weight:700}
+  .contrast-badge.pass{background:rgba(74,222,128,.2);color:var(--up)}
+  .contrast-badge.fail{background:rgba(248,113,113,.2);color:var(--down)}
+  .contrast-levels{display:grid;grid-template-columns:repeat(4,1fr);gap:.5rem;margin-top:1rem;font-size:.75rem}
+  .contrast-level{padding:.5rem;background:var(--card);border:1px solid var(--line);border-radius:8px;text-align:center}
+  .contrast-level.met{border-color:var(--up);background:rgba(74,222,128,.1)}
+
+  /* CSS Vars */
+  .css-out{font-family:ui-monospace,monospace;font-size:.8rem;background:var(--inset);border:1px solid var(--line);border-radius:10px;padding:1rem;max-height:300px;overflow:auto;white-space:pre-wrap}
+  .css-controls{display:flex;gap:.5rem;margin-bottom:.8rem;flex-wrap:wrap}
+  .css-controls select,.css-controls input{padding:.5rem .8rem;border-radius:8px;background:var(--inset);border:1px solid var(--line);color:var(--text)}
+
+  /* Gradient */
+  .grad-preview{height:120px;border-radius:12px;margin-bottom:1rem;background:linear-gradient(90deg, #7dd3fc, #a78bfa)}
+  .grad-stops{display:flex;gap:.5rem;flex-wrap:wrap;margin-bottom:1rem}
+  .grad-stop{display:flex;align-items:center;gap:.4rem;padding:.4rem .6rem;background:var(--card);border:1px solid var(--line);border-radius:8px}
+  .grad-stop input[type="color"]{width:28px;height:28px;border:none;border-radius:6px;cursor:pointer}
+  .grad-stop input[type="range"]{flex:1}
+  .grad-controls{display:flex;gap:.5rem;flex-wrap:wrap;margin-bottom:1rem}
+  .grad-controls select,.grad-controls input{padding:.5rem .8rem;border-radius:8px;background:var(--inset);border:1px solid var(--line);color:var(--text)}
+  .grad-css{font-family:ui-monospace,monospace;font-size:.75rem;background:var(--inset);border:1px solid var(--line);border-radius:8px;padding:.8rem;white-space:pre-wrap}
+
+  .history{margin-top:1rem;max-height:150px;overflow:auto}
+  .hist-item{display:flex;justify-content:space-between;padding:.3rem .5rem;border-bottom:1px solid var(--line);font-size:.8rem}
+</style>
+</head>
+<body>
+  <div style="max-width:600px;margin:0 auto;padding:1rem 1rem 0">
+    <a href="/apps.html" style="color:var(--dim);font-size:.85rem;text-decoration:none">← PocketOS</a>
+  </div>
+  <div class="center">
+    <h2 style="margin:0 0 .3rem">Color Tools</h2>
+    <p class="dim" style="margin:0 0 1rem">Palette generator, contrast checker, CSS variables, gradients.</p>
+
+    <div class="tabs" id="tabs"></div>
+
+    <!-- Palette -->
+    <div class="panel active" id="palette">
+      <div class="palette-gen">
+        <input type="text" id="palBase" placeholder="Base color (hex)" value="#7dd3fc">
+        <select id="palMode"><option value="analogous">Analogous</option><option value="monochrome">Monochrome</option><option value="triad">Triad</option><option value="complementary">Complementary</option><option value="split-comp">Split Complementary</option><option value="tetrad">Tetrad</option><option value="shades">Shades</option><option value="tints">Tints</option><option value="tones">Tones</option></select>
+        <button id="palGen">Generate</button>
+        <button id="palRandom">Random</button>
+        <button id="palExport">Export CSS</button>
+      </div>
+      <div class="palette" id="palGrid"></div>
+      <div class="history"><div style="font-size:.75rem;color:var(--dim);margin-bottom:.4rem;text-transform:uppercase">Recent Palettes</div><div id="palHist"></div></div>
+    </div>
+
+    <!-- Contrast -->
+    <div class="panel" id="contrast">
+      <div class="contrast-row">
+        <div class="color-picker">
+          <label>Foreground</label>
+          <input type="color" id="fgColor" value="#0b0f14">
+        </div>
+        <div class="color-picker">
+          <label>Background</label>
+          <input type="color" id="bgColor" value="#f2f6fb">
+        </div>
+      </div>
+      <div class="contrast-result">
+        <div class="contrast-ratio" id="ratio">—</div>
+        <div class="contrast-badge" id="badge">—</div>
+        <div class="contrast-levels" id="levels"></div>
+      </div>
+      <div class="history"><div style="font-size:.75rem;color:var(--dim);margin-bottom:.4rem;text-transform:uppercase">Recent Checks</div><div id="conHist"></div></div>
+    </div>
+
+    <!-- CSS Variables -->
+    <div class="panel" id="cssvars">
+      <div class="css-controls">
+        <select id="cssFormat"><option value="css">CSS Custom Properties</option><option value="scss">SCSS Variables</option><option value="tailwind">Tailwind Config</option><option value="json">JSON</option></select>
+        <input type="text" id="cssPrefix" placeholder="Prefix (e.g. --color-)" value="--color-">
+        <button id="cssCopy">Copy</button>
+      </div>
+      <div class="css-out" id="cssOut"></div>
+    </div>
+
+    <!-- Gradient -->
+    <div class="panel" id="gradient">
+      <div class="grad-preview" id="gradPreview"></div>
+      <div class="grad-stops" id="gradStops"></div>
+      <div class="grad-controls">
+        <select id="gradType"><option value="linear">Linear</option><option value="radial">Radial</option><option value="conic">Conic</option></select>
+        <input type="range" id="gradAngle" min="0" max="360" value="90" step="15">
+        <output id="gradAngleVal">90°</output>
+        <button id="gradAdd">Add Stop</button>
+        <button id="gradRandom">Randomize</button>
+        <button id="gradCopy">Copy CSS</button>
+      </div>
+      <div class="grad-css" id="gradCss"></div>
+    </div>
+  </div>
+
+<script>
+const $ = id => document.getElementById(id);
+
+const TABS = [
+  {id:"palette", name:"🎨 Palette"},
+  {id:"contrast", name:"♿ Contrast"},
+  {id:"cssvars", name:"📦 CSS Vars"},
+  {id:"gradient", name:"🌈 Gradient"}
+];
+
+function renderTabs(){
+  $("tabs").innerHTML = TABS.map(t=>`<button class="tab${t.id==="palette"?" active":""}" data-id="${t.id}">${t.name}</button>`).join("");
+  $("tabs").querySelectorAll("button").forEach(b=>b.onclick=()=>{
+    document.querySelectorAll(".panel").forEach(p=>p.classList.remove("active"));
+    document.querySelectorAll(".tab").forEach(t=>t.classList.remove("active"));
+    $(b.dataset.id).classList.add("active");
+    b.classList.add("active");
+  });
+}
+
+// --- Palette ---
+function hexToHsl(hex){
+  hex=hex.replace("#","");
+  const r=parseInt(hex.slice(0,2),16)/255, g=parseInt(hex.slice(2,4),16)/255, b=parseInt(hex.slice(4,6),16)/255;
+  const max=Math.max(r,g,b), min=Math.min(r,g,b); let h,s,l=(max+min)/2;
+  if(max===min){ h=s=0; }
+  else{
+    const d=max-min; s=l>0.5?d/(2-max-min):d/(max+min);
+    switch(max){ case r: h=(g-b)/d+(g<b?6:0); break; case g: h=(b-r)/d+2; break; case b: h=(r-g)/d+4; break; }
+    h/=6;
+  }
+  return [Math.round(h*360), Math.round(s*100), Math.round(l*100)];
+}
+function hslToHex(h,s,l){
+  h/=360; s/=100; l/=100;
+  const hue2rgb=(p,q,t)=>{ if(t<0)t+=1; if(t>1)t-=1; if(t<1/6)return p+(q-p)*6*t; if(t<1/2)return q; if(t<2/3)return p+(q-p)*(2/3-t)*6; return p; };
+  let r,g,b;
+  if(s===0) r=g=b=l;
+  else{
+    const q=l<0.5?l*(1+s):l+s-l*s; const p=2*l-q;
+    r=hue2rgb(p,q,h+1/3); g=hue2rgb(p,q,h); b=hue2rgb(p,q,h-1/3);
+  }
+  const toHex=x=>Math.round(x*255).toString(16).padStart(2,"0");
+  return "#"+toHex(r)+toHex(g)+toHex(b);
+}
+
+function generatePalette(baseHex, mode, count=8){
+  const [h,s,l] = hexToHsl(baseHex);
+  const colors = [baseHex];
+  switch(mode){
+    case "analogous":
+      for(let i=1;i<count;i++) colors.push(hslToHex((h+30*i)%360, s, l));
+      break;
+    case "monochrome":
+      for(let i=1;i<count;i++) colors.push(hslToHex(h, s, Math.max(10, Math.min(90, l + (i%2?-1:1)*12*Math.ceil(i/2)))));
+      break;
+    case "triad":
+      colors.push(hslToHex((h+120)%360, s, l), hslToHex((h+240)%360, s, l));
+      break;
+    case "complementary":
+      colors.push(hslToHex((h+180)%360, s, l));
+      break;
+    case "split-comp":
+      colors.push(hslToHex((h+150)%360, s, l), hslToHex((h+210)%360, s, l));
+      break;
+    case "tetrad":
+      colors.push(hslToHex((h+90)%360, s, l), hslToHex((h+180)%360, s, l), hslToHex((h+270)%360, s, l));
+      break;
+    case "shades":
+      for(let i=1;i<count;i++) colors.push(hslToHex(h, s, Math.max(5, l - i*10)));
+      break;
+    case "tints":
+      for(let i=1;i<count;i++) colors.push(hslToHex(h, Math.max(5, s - i*10), Math.min(95, l + i*10)));
+      break;
+    case "tones":
+      for(let i=1;i<count;i++) colors.push(hslToHex(h, Math.max(5, s - i*10), l));
+      break;
+  }
+  return colors.slice(0, count);
+}
+
+function renderPalette(colors){
+  $("palGrid").innerHTML = colors.map(c=>`
+    <div class="swatch" style="background:${c}" title="${c}">
+      <div class="swatch-hex">${c}</div>
+      <div class="swatch-actions"><button data-hex="${c}">Copy</button></div>
+    </div>
+  `).join("");
+  $("palGrid").querySelectorAll("button").forEach(b=>b.onclick=(e)=>{
+    e.stopPropagation(); navigator.clipboard.writeText(b.dataset.hex);
+    b.textContent="Copied!"; setTimeout(()=>b.textContent="Copy",1000);
+  });
+}
+
+let palHistory = [];
+function loadPalHist(){ try{palHistory=JSON.parse(localStorage.getItem("pocketos.colors.palettes"))||[];}catch{} }
+function savePalHist(){ localStorage.setItem("pocketos.colors.palettes", JSON.stringify(palHistory.slice(-20))); }
+function addPalHist(colors){
+  palHistory.unshift({colors, ts:Date.now()}); savePalHist(); renderPalHist();
+}
+function renderPalHist(){
+  $("palHist").innerHTML = palHistory.map((h,i)=>`<div class="hist-item"><span>${new Date(h.ts).toLocaleTimeString()}</span><span>${h.colors.slice(0,5).join(", ")}${h.colors.length>5?"…":""}</span></div>`).join("");
+}
+
+$("palGen").onclick=()=>{
+  const colors = generatePalette($("palBase").value, $("palMode").value);
+  renderPalette(colors); addPalHist(colors);
+};
+$("palRandom").onclick=()=>{
+  const h = Math.floor(Math.random()*360);
+  const s = 50+Math.random()*50;
+  const l = 30+Math.random()*40;
+  const base = hslToHex(h,s,l);
+  $("palBase").value = base;
+  const colors = generatePalette(base, $("palMode").value);
+  renderPalette(colors); addPalHist(colors);
+};
+$("palExport").onclick=()=>{
+  const colors = Array.from($("palGrid").querySelectorAll(".swatch")).map(s=>s.title).filter(Boolean);
+  if(!colors.length) return;
+  const css = colors.map((c,i)=>`${$("cssPrefix").value}${i+1}: ${c};`).join("\n");
+  navigator.clipboard.writeText(":root {\n  " + css + "\n}");
+  $("palExport").textContent="Copied!"; setTimeout(()=>$("palExport").textContent="Export CSS",1000);
+};
+
+loadPalHist(); renderPalHist();
+$("palGen").click();
+
+// --- Contrast ---
+function luminance(hex){
+  hex=hex.replace("#","");
+  const rgb=hex.match(/.{2}/g).map(x=>{ const v=parseInt(x,16)/255; return v<=0.03928?v/12.92:Math.pow((v+0.055)/1.055,2.4); });
+  return 0.2126*rgb[0]+0.7152*rgb[1]+0.0722*rgb[2];
+}
+function contrastRatio(fg,bg){
+  const L1=luminance(fg), L2=luminance(bg);
+  return (Math.max(L1,L2)+0.05)/(Math.min(L1,L2)+0.05);
+}
+
+function updateContrast(){
+  const ratio = contrastRatio($("fgColor").value, $("bgColor").value);
+  $("ratio").textContent = ratio.toFixed(2) + ":1";
+  const aa = ratio>=4.5, aaLarge = ratio>=3, aaa = ratio>=7, aaaLarge = ratio>=4.5;
+  $("badge").textContent = aa ? "✓ AA / AAA" : "✗ Fail";
+  $("badge").className = "contrast-badge " + (aa?"pass":"fail");
+  const levels = [
+    {label:"AA Normal", met:aa},
+    {label:"AA Large", met:aaLarge},
+    {label:"AAA Normal", met:aaa},
+    {label:"AAA Large", met:aaaLarge}
+  ];
+  $("levels").innerHTML = levels.map(l=>`<div class="contrast-level${l.met?" met":""}"><div class="dim">${l.label}</div><div style="font-weight:700">${l.met?"✓":"✗"}</div></div>`).join("");
+  addConHist($("fgColor").value, $("bgColor").value, ratio);
+}
+
+let conHist = [];
+function loadConHist(){ try{conHist=JSON.parse(localStorage.getItem("pocketos.colors.contrast"))||[];}catch{} }
+function saveConHist(){ localStorage.setItem("pocketos.colors.contrast", JSON.stringify(conHist.slice(-20))); }
+function addConHist(fg,bg,ratio){
+  conHist.unshift({fg,bg,ratio,ts:Date.now()}); saveConHist(); renderConHist();
+}
+function renderConHist(){
+  $("conHist").innerHTML = conHist.map(h=>`<div class="hist-item"><span>${h.fg} on ${h.bg}</span><span>${h.ratio.toFixed(2)}:1</span></div>`).join("");
+}
+
+[$("fgColor"),$("bgColor")].forEach(el=>el.oninput=updateContrast);
+loadConHist(); renderConHist(); updateContrast();
+
+// --- CSS Variables ---
+function renderCssVars(){
+  const colors = Array.from($("palGrid").querySelectorAll(".swatch")).map(s=>s.title).filter(Boolean);
+  if(!colors.length){ $("cssOut").textContent = "Generate a palette first."; return; }
+  const prefix = $("cssPrefix").value || "--color-";
+  const format = $("cssFormat").value;
+  let out = "";
+  if(format==="css"){
+    out = ":root {\n" + colors.map((c,i)=>`  ${prefix}${i+1}: ${c};`).join("\n") + "\n}";
+  }else if(format==="scss"){
+    out = colors.map((c,i)=>`$${prefix}${i+1}: ${c};`).join("\n");
+  }else if(format==="tailwind"){
+    out = "module.exports = {\n  theme: {\n    extend: {\n      colors: {\n" + colors.map((c,i)=>`        ${prefix}${i+1}: "${c}",`).join("\n") + "\n      }\n    }\n  }\n};";
+  }else{
+    out = JSON.stringify(Object.fromEntries(colors.map((c,i)=>[`${prefix}${i+1}`, c])), null, 2);
+  }
+  $("cssOut").textContent = out;
+}
+[$("cssFormat"),$("cssPrefix")].forEach(el=>el.oninput=renderCssVars);
+$("cssCopy").onclick=()=>{ navigator.clipboard.writeText($("cssOut").textContent); $("cssCopy").textContent="Copied!"; setTimeout(()=>$("cssCopy").textContent="Copy",1000); };
+
+// --- Gradient ---
+let gradStops = [
+  {color:"#7dd3fc", pos:0},
+  {color:"#a78bfa", pos:100}
+];
+
+function renderGradStops(){
+  $("gradStops").innerHTML = gradStops.map((s,i)=>`<div class="grad-stop"><input type="color" value="${s.color}" data-i="${i}"><input type="range" min="0" max="100" value="${s.pos}" data-i="${i}"><span>${s.pos}%</span><button data-i="${i}" style="background:none;border:none;color:var(--down);padding:0 .4rem">✕</button></div>`).join("");
+  $("gradStops").querySelectorAll("input[type=color]").forEach(inp=>inp.oninput=()=>{ gradStops[+inp.dataset.i].color=inp.value; updateGrad(); });
+  $("gradStops").querySelectorAll("input[type=range]").forEach(inp=>inp.oninput=()=>{ gradStops[+inp.dataset.i].pos=+inp.value; inp.nextElementSibling.textContent=inp.value+"%"; updateGrad(); });
+  $("gradStops").querySelectorAll("button").forEach(b=>b.onclick=()=>{ if(gradStops.length>2){ gradStops.splice(+b.dataset.i,1); renderGradStops(); updateGrad(); } });
+}
+
+function updateGrad(){
+  const type = $("gradType").value;
+  const angle = $("gradAngle").value;
+  const stops = gradStops.map(s=>`${s.color} ${s.pos}%`).join(", ");
+  let css = "";
+  if(type==="linear") css = `linear-gradient(${angle}deg, ${stops})`;
+  else if(type==="radial") css = `radial-gradient(circle, ${stops})`;
+  else css = `conic-gradient(from ${angle}deg, ${stops})`;
+  $("gradPreview").style.background = css;
+  $("gradCss").textContent = `background: ${css};`;
+  $("gradAngleVal").textContent = angle+"°";
+}
+
+$("gradType").onchange=updateGrad;
+$("gradAngle").oninput=()=>{ $("gradAngleVal").textContent=$("gradAngle").value+"°"; updateGrad(); };
+$("gradAdd").onclick=()=>{ gradStops.push({color:hslToHex(Math.random()*360,70,60), pos:Math.round(Math.random()*100)}); renderGradStops(); updateGrad(); };
+$("gradRandom").onclick=()=>{
+  gradStops = Array.from({length:3+Math.floor(Math.random()*3)},()=>({color:hslToHex(Math.random()*360,50+Math.random()*50,40+Math.random()*30), pos:Math.round(Math.random()*100)}));
+  gradStops.sort((a,b)=>a.pos-b.pos);
+  renderGradStops(); updateGrad();
+};
+$("gradCopy").onclick=()=>{ navigator.clipboard.writeText($("gradCss").textContent); $("gradCopy").textContent="Copied!"; setTimeout(()=>$("gradCopy").textContent="Copy CSS",1000); };
+
+renderGradStops();
+updateGrad();
+
+renderTabs();
+</script>
+</body>
+</html>

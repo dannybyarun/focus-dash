@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Unit Converter — PocketOS</title>
+<link rel="stylesheet" href="/shared.css">
+<style>
+  body{padding:1rem 1.2rem}
+  .center{max-width:560px;margin:0 auto}
+  .cat-tabs{display:flex;gap:.4rem;margin-bottom:1rem;flex-wrap:wrap}
+  .cat-tab{padding:.5rem .9rem;border-radius:8px;background:var(--card);border:1px solid var(--line);font-size:.85rem}
+  .cat-tab.active{background:var(--accent);color:#0b0f14;border-color:var(--accent)}
+  .converter{display:none}
+  .converter.active{display:block}
+  .row{display:grid;grid-template-columns:1fr 1fr;gap:.8rem;margin-bottom:.8rem}
+  .field label{display:block;font-size:.75rem;color:var(--dim);margin-bottom:.3rem;text-transform:uppercase;letter-spacing:.03em}
+  .field input{width:100%}
+  .swap{display:flex;align-items:center;justify-content:center;margin:.4rem 0}
+  .swap button{width:36px;height:36px;border-radius:50%;background:var(--card);border:1px solid var(--line);font-size:1.2rem;display:flex;align-items:center;justify-content:center}
+  .result{padding:.8rem;background:var(--inset);border:1px solid var(--line);border-radius:10px;font-family:ui-monospace,monospace;font-size:1.1rem;text-align:center;min-height:2.5rem}
+  .history{margin-top:1rem;max-height:200px;overflow:auto}
+  .hist-item{display:flex;justify-content:space-between;padding:.4rem .5rem;border-bottom:1px solid var(--line);font-size:.85rem}
+  .hist-item:last-child{border-bottom:none}
+</style>
+</head>
+<body>
+  <div style="max-width:560px;margin:0 auto;padding:1rem 1rem 0">
+    <a href="/apps.html" style="color:var(--dim);font-size:.85rem;text-decoration:none">← PocketOS</a>
+  </div>
+  <div class="center">
+    <h2 style="margin:0 0 .3rem">Unit Converter</h2>
+    <p class="dim" style="margin:0 0 1rem">Convert between units instantly — works offline.</p>
+
+    <div class="cat-tabs" id="cats"></div>
+
+    <div id="converters"></div>
+
+    <div class="history">
+      <div style="font-size:.75rem;color:var(--dim);margin-bottom:.4rem;text-transform:uppercase;letter-spacing:.03em">Recent</div>
+      <div id="hist"></div>
+    </div>
+  </div>
+
+<script>
+const KEY = "pocketos.converter.history";
+
+const CATEGORIES = [
+  {
+    key:"length", name:"Length",
+    base:"meter",
+    units:{
+      "nanometer":1e-9,"micrometer":1e-6,"millimeter":1e-3,"centimeter":1e-2,
+      "meter":1,"kilometer":1e3,
+      "inch":0.0254,"foot":0.3048,"yard":0.9144,"mile":1609.344,
+      "nautical mile":1852
+    }
+  },
+  {
+    key:"mass", name:"Mass",
+    base:"kilogram",
+    units:{
+      "microgram":1e-9,"milligram":1e-6,"gram":1e-3,"kilogram":1,
+      "metric ton":1e3,
+      "ounce":0.0283495,"pound":0.453592,"stone":6.35029,"US ton":907.185,"imperial ton":1016.05
+    }
+  },
+  {
+    key:"temperature", name:"Temperature",
+    base:"celsius",
+    units:{}, // special
+    convert:(val,from,to)=>{
+      let c;
+      if(from==="celsius") c=val;
+      else if(from==="fahrenheit") c=(val-32)*5/9;
+      else if(from==="kelvin") c=val-273.15;
+      else if(from==="rankine") c=(val-491.67)*5/9;
+      if(to==="celsius") return c;
+      if(to==="fahrenheit") return c*9/5+32;
+      if(to==="kelvin") return c+273.15;
+      if(to==="rankine") return (c+273.15)*9/5;
+    }
+  },
+  {
+    key:"volume", name:"Volume",
+    base:"liter",
+    units:{
+      "milliliter":1e-3,"centiliter":1e-2,"deciliter":1e-1,"liter":1,
+      "cubic meter":1e3,
+      "teaspoon":0.00492892,"tablespoon":0.0147868,"fluid ounce":0.0295735,
+      "cup":0.236588,"pint":0.473176,"quart":0.946353,"gallon":3.78541,
+      "cubic inch":0.0163871,"cubic foot":28.3168
+    }
+  },
+  {
+    key:"area", name:"Area",
+    base:"square meter",
+    units:{
+      "square mm":1e-6,"square cm":1e-4,"square meter":1,
+      "hectare":1e4,"square km":1e6,
+      "square inch":0.00064516,"square foot":0.092903,"square yard":0.836127,
+      "acre":4046.86,"square mile":2.59e6
+    }
+  },
+  {
+    key:"speed", name:"Speed",
+    base:"meter/second",
+    units:{
+      "m/s":1,"km/h":1/3.6,"mph":0.44704,"knot":0.514444,
+      "ft/s":0.3048,"mach":343
+    }
+  },
+  {
+    key:"time", name:"Time",
+    base:"second",
+    units:{
+      "nanosecond":1e-9,"microsecond":1e-6,"millisecond":1e-3,"second":1,
+      "minute":60,"hour":3600,"day":86400,"week":604800,
+      "month":2.628e6,"year":3.154e7
+    }
+  },
+  {
+    key:"data", name:"Data",
+    base:"byte",
+    units:{
+      "bit":0.125,"byte":1,"kilobyte":1e3,"megabyte":1e6,"gigabyte":1e9,"terabyte":1e12,
+      "kibibyte":1024,"mebibyte":1024**2,"gibibyte":1024**3,"tebibyte":1024**4
+    }
+  },
+  {
+    key:"pressure", name:"Pressure",
+    base:"pascal",
+    units:{
+      "pascal":1,"kilopascal":1e3,"megapascal":1e6,
+      "bar":1e5,"millibar":100,"atm":101325,
+      "psi":6894.76,"torr":133.322,"mmHg":133.322
+    }
+  },
+  {
+    key:"energy", name:"Energy",
+    base:"joule",
+    units:{
+      "joule":1,"kilojoule":1e3,"megajoule":1e6,
+      "calorie":4.184,"kilocalorie":4184,
+      "watt hour":3600,"kilowatt hour":3.6e6,
+      "BTU":1055.06,"electronvolt":1.602e-19,"foot-pound":1.35582
+    }
+  },
+  {
+    key:"power", name:"Power",
+    base:"watt",
+    units:{
+      "watt":1,"kilowatt":1e3,"megawatt":1e6,"gigawatt":1e9,
+      "horsepower":745.7,"metric hp":735.5,"BTU/h":0.293071
+    }
+  }
+];
+
+let activeCat = 0;
+let history = [];
+
+function loadHist(){ try{history=JSON.parse(localStorage.getItem(KEY))||[]; }catch{} }
+function saveHist(){ localStorage.setItem(KEY, JSON.stringify(history.slice(-50))); }
+
+function addHist(cat, from, to, val, result){
+  const entry = `${val} ${from} = ${result.toPrecision(6)} ${to} (${cat})`;
+  history.unshift(entry);
+  if(history.length>50) history.pop();
+  saveHist(); renderHist();
+}
+
+function renderHist(){
+  document.getElementById("hist").innerHTML = history.length
+    ? history.map(h=>`<div class="hist-item"><span>${h}</span></div>`).join("")
+    : '<div class="hist-item" style="color:var(--dim);justify-content:center">No conversions yet</div>';
+}
+
+function renderCats(){
+  const cats = document.getElementById("cats");
+  cats.innerHTML = CATEGORIES.map((c,i)=>
+    `<button class="cat-tab${i===activeCat?' active':''}" data-i="${i}">${c.name}</button>`
+  ).join("");
+  cats.querySelectorAll("button").forEach(b=>b.onclick=()=>{
+    activeCat=+b.dataset.i; renderCats(); renderConverter();
+  });
+}
+
+function renderConverter(){
+  const cat = CATEGORIES[activeCat];
+  const units = Object.keys(cat.units || {});
+  const html = `
+    <div class="converter active" id="conv-${cat.key}">
+      <div class="row">
+        <div class="field">
+          <label>From</label>
+          <select id="from-${cat.key}">${units.map(u=>`<option${u===cat.base?' selected':''}>${u}</option>`).join("")}</select>
+        </div>
+        <div class="field">
+          <label>To</label>
+          <select id="to-${cat.key}">${units.map(u=>`<option${u!==cat.base?' selected':''}>${u}</option>`).join("")}</select>
+        </div>
+      </div>
+      <div class="row">
+        <div class="field" style="grid-column:1/-1">
+          <label>Value</label>
+          <input type="number" id="val-${cat.key}" placeholder="Enter value" step="any">
+        </div>
+      </div>
+      <div class="swap"><button id="swap-${cat.key}" title="Swap">⇄</button></div>
+      <div class="row">
+        <div class="field" style="grid-column:1/-1"><label>Result</label></div>
+      </div>
+      <div class="result" id="res-${cat.key}">—</div>
+    </div>
+  `;
+  document.getElementById("converters").innerHTML = html;
+  attach(cat);
+}
+
+function attach(cat){
+  const from = document.getElementById(`from-${cat.key}`);
+  const to = document.getElementById(`to-${cat.key}`);
+  const val = document.getElementById(`val-${cat.key}`);
+  const res = document.getElementById(`res-${cat.key}`);
+  const swap = document.getElementById(`swap-${cat.key}`);
+
+  function compute(){
+    const v = parseFloat(val.value);
+    if(isNaN(v)){ res.textContent="—"; return; }
+    let result;
+    if(cat.convert) result = cat.convert(v, from.value, to.value);
+    else {
+      const baseVal = v * cat.units[from.value];
+      result = baseVal / cat.units[to.value];
+    }
+    res.textContent = result.toLocaleString(undefined, {maximumFractionDigits:10});
+    addHist(cat.name, from.value, to.value, v, result);
+  }
+
+  [from,to,val].forEach(el=>el.addEventListener("input",compute));
+  swap.onclick=()=>{ const t=from.value; from.value=to.value; to.value=t; compute(); };
+  compute();
+}
+
+renderCats();
+renderConverter();
+loadHist();
+renderHist();
+</script>
+</body>
+</html>

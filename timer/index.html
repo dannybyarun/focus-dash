@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Timer — PocketOS</title>
+<link rel="stylesheet" href="/shared.css">
+<style>
+  body{padding:1rem 1.2rem}
+  .center{max-width:420px;margin:0 auto}
+  .presets{display:flex;gap:.5rem;flex-wrap:wrap;margin-bottom:1rem}
+  .presets button{flex:1;min-width:80px;padding:.7rem;border-radius:10px;background:var(--card);border:1px solid var(--line)}
+  .presets button.active{border-color:var(--accent);box-shadow:0 0 0 2px var(--glow)}
+  .timer{text-align:center;padding:2rem 1rem}
+  .time{font-size:6rem;font-weight:700;font-variant-numeric:tabular-nums;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:-.02em;line-height:1}
+  .mode{color:var(--dim);margin-top:.5rem;font-size:.9rem}
+  .controls{display:flex;gap:.7rem;justify-content:center;flex-wrap:wrap;margin-top:1.5rem}
+  .btn{padding:.8rem 1.5rem;border-radius:10px;font-weight:600;border:none}
+  .btn-primary{background:var(--accent);color:#0b0f14}
+  .btn-secondary{background:var(--card);border:1px solid var(--line);color:var(--text)}
+  .btn-danger{background:var(--down);color:#fff}
+  .stats{display:grid;grid-template-columns:repeat(3,1fr);gap:.7rem;margin-top:1.5rem;padding:1rem;background:var(--card);border:1px solid var(--line);border-radius:12px}
+  .stat{text-align:center}
+  .stat-value{font-size:1.5rem;font-weight:700}
+  .stat-label{font-size:.7rem;color:var(--dim);text-transform:uppercase;letter-spacing:.05em}
+  .session-log{max-height:200px;overflow:auto;margin-top:1rem;padding:.5rem;background:var(--card);border:1px solid var(--line);border-radius:10px}
+  .session-item{display:flex;justify-content:space-between;padding:.4rem .5rem;border-bottom:1px solid var(--line);font-size:.8rem}
+  .session-item:last-child{border-bottom:none}
+</style>
+</head>
+<body>
+  <div style="max-width:420px;margin:0 auto;padding:1rem 1rem 0">
+    <a href="/apps.html" style="color:var(--dim);font-size:.85rem;text-decoration:none">← PocketOS</a>
+  </div>
+  <div class="center">
+    <div class="presets" id="presets"></div>
+    <div class="timer">
+      <div class="time" id="time">25:00</div>
+      <div class="mode" id="mode">Focus</div>
+    </div>
+    <div class="controls">
+      <button class="btn btn-primary" id="startBtn">Start</button>
+      <button class="btn btn-secondary" id="pauseBtn" disabled>Pause</button>
+      <button class="btn btn-secondary" id="resetBtn">Reset</button>
+      <button class="btn btn-danger" id="skipBtn" disabled>Skip</button>
+    </div>
+    <div class="stats">
+      <div class="stat"><div class="stat-value" id="sessionsToday">0</div><div class="stat-label">Today</div></div>
+      <div class="stat"><div class="stat-value" id="totalFocus">0</div><div class="stat-label">Focus min</div></div>
+      <div class="stat"><div class="stat-value" id="streak">0</div><div class="stat-label">Streak</div></div>
+    </div>
+    <div class="session-log" id="log"></div>
+  </div>
+
+<script>
+const KEY = "pocketos.timer";
+const PRESETS = [
+  {name:"Pomodoro",focus:25,break:5,longBreak:15,cycles:4},
+  {name:"Short",focus:15,break:3,longBreak:10,cycles:4},
+  {name:"Long",focus:50,break:10,longBreak:20,cycles:3},
+  {name:"Custom",focus:25,break:5,longBreak:15,cycles:4,custom:true}
+];
+
+let state = loadState();
+let timer = null;
+let remaining = state.remaining ?? PRESETS[0].focus * 60;
+let isFocus = state.isFocus ?? true;
+let currentCycle = state.currentCycle ?? 1;
+let currentPreset = state.currentPreset ?? 0;
+
+const $ = id => document.getElementById(id);
+
+function loadState(){
+  try{ return JSON.parse(localStorage.getItem(KEY)) || {}; }catch{ return {}; }
+}
+function saveState(){
+  localStorage.setItem(KEY, JSON.stringify({
+    remaining, isFocus, currentCycle, currentPreset,
+    sessionsToday: state.sessionsToday,
+    totalFocus: state.totalFocus,
+    streak: state.streak,
+    lastDate: state.lastDate,
+    streakDate: state.streakDate,
+    log: state.log
+  }));
+}
+
+function fmt(s){
+  const m = Math.floor(s/60).toString().padStart(2,"0");
+  const sec = (s%60).toString().padStart(2,"0");
+  return `${m}:${sec}`;
+}
+
+function renderPresets(){
+  $("presets").innerHTML = PRESETS.map((p,i)=>
+    `<button class="${i===currentPreset?'active':''}" data-i="${i}">${p.name}${p.custom?' ✎':''}</button>`
+  ).join("");
+  $("presets").querySelectorAll("button").forEach(b=>b.onclick=()=>{
+    const i=+b.dataset.i;
+    if(PRESETS[i].custom){
+      const f=prompt("Focus minutes:", PRESETS[i].focus);
+      const b=prompt("Break minutes:", PRESETS[i].break);
+      if(f&&b){ PRESETS[i].focus=+f; PRESETS[i].break=+b; }
+    }
+    currentPreset=i; remaining=PRESETS[i].focus*60; isFocus=true; currentCycle=1;
+    saveState(); render();
+  });
+}
+
+function render(){
+  $("time").textContent = fmt(remaining);
+  $("mode").textContent = isFocus ? "Focus" : (currentCycle % PRESETS[currentPreset].cycles === 0 ? "Long Break" : "Break");
+  $("mode").style.color = isFocus ? "var(--accent)" : "var(--up)";
+  $("startBtn").disabled = timer!==null;
+  $("pauseBtn").disabled = timer===null;
+  $("skipBtn").disabled = timer===null;
+  renderPresets();
+  renderStats();
+  renderLog();
+}
+
+function renderStats(){
+  const today = new Date().toDateString();
+  if(state.lastDate !== today){
+    state.sessionsToday = 0;
+    state.lastDate = today;
+    const yesterday = new Date(Date.now()-864e5).toDateString();
+    if(state.streakDate !== yesterday) state.streak = 0;
+    state.streakDate = today;
+  }
+  $("sessionsToday").textContent = state.sessionsToday||0;
+  $("totalFocus").textContent = Math.round((state.totalFocus||0)/60);
+  $("streak").textContent = state.streak||0;
+}
+
+function renderLog(){
+  const log = state.log || [];
+  $("log").innerHTML = log.slice(-20).reverse().map(s=>
+    `<div class="session-item"><span>${new Date(s.ts).toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"})}</span><span>${s.type} ${Math.round(s.dur/60)}m</span></div>`
+  ).join("") || '<div style="padding:.5rem;color:var(--dim);font-size:.8rem">No sessions yet</div>';
+}
+
+function tick(){
+  if(remaining>0){ remaining--; saveState(); render(); return; }
+  const preset = PRESETS[currentPreset];
+  if(isFocus){
+    state.sessionsToday = (state.sessionsToday||0)+1;
+    state.totalFocus = (state.totalFocus||0)+preset.focus*60;
+    state.log = state.log||[];
+    state.log.push({type:"Focus",dur:preset.focus*60,ts:Date.now()});
+    if(state.log.length>100) state.log.shift();
+    const today = new Date().toDateString();
+    if(state.streakDate !== today){
+      const yesterday = new Date(Date.now()-864e5).toDateString();
+      state.streak = (state.streakDate===yesterday ? (state.streak||0)+1 : 1);
+      state.streakDate = today;
+    }
+    isFocus = false;
+    if(currentCycle % preset.cycles === 0){
+      remaining = preset.longBreak * 60;
+    }else{
+      remaining = preset.break * 60;
+    }
+  }else{
+    isFocus = true;
+    currentCycle++;
+    remaining = preset.focus * 60;
+  }
+  saveState();
+  notify();
+  render();
+}
+
+function notify(){
+  if("Notification" in window && Notification.permission==="granted"){
+    new Notification(isFocus?"Break over — focus time!":"Focus done — take a break",{icon:"/favicon.ico"});
+  }else if("Notification" in window && Notification.permission!=="denied"){
+    Notification.requestPermission();
+  }
+  const ctx=new AudioContext();const o=ctx.createOscillator();const g=ctx.createGain();
+  o.frequency.value=isFocus?880:440;o.type="sine";g.gain.value=0.1;
+  o.connect(g);g.connect(ctx.destination);o.start();o.stop(ctx.currentTime+0.3);
+}
+
+$("startBtn").onclick=()=>{
+  if(timer) return;
+  timer=setInterval(tick,1000);
+  saveState(); render();
+};
+$("pauseBtn").onclick=()=>{ clearInterval(timer); timer=null; saveState(); render(); };
+$("resetBtn").onclick=()=>{ clearInterval(timer); timer=null; remaining=PRESETS[currentPreset].focus*60; isFocus=true; currentCycle=1; saveState(); render(); };
+$("skipBtn").onclick=()=>{ remaining=0; tick(); };
+
+if("Notification" in window && Notification.permission==="default"){
+  Notification.requestPermission();
+}
+
+render();
+</script>
+</body>
+</html>

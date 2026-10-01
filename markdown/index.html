@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Markdown Preview — PocketOS</title>
+<link rel="stylesheet" href="/shared.css">
+<style>
+  body{padding:1rem 1.2rem}
+  .center{max-width:1000px;margin:0 auto}
+  .toolbar{display:flex;gap:.5rem;margin-bottom:.8rem;flex-wrap:wrap}
+  .toolbar button{padding:.5rem .9rem;border-radius:8px;background:var(--card);border:1px solid var(--line);font-size:.8rem}
+  .toolbar button:hover{border-color:var(--accent)}
+  .toolbar select{padding:.5rem .8rem;border-radius:8px;background:var(--inset);border:1px solid var(--line);color:var(--text)}
+  .editor-wrap{display:grid;grid-template-columns:1fr 1fr;gap:1rem}
+  @media (max-width:800px){ .editor-wrap{grid-template-columns:1fr} }
+  .pane{display:flex;flex-direction:column}
+  .pane label{font-size:.7rem;color:var(--dim);margin-bottom:.3rem;text-transform:uppercase;letter-spacing:.03em}
+  textarea{flex:1;min-height:400px;resize:vertical;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.85rem;line-height:1.6}
+  #preview{flex:1;min-height:400px;padding:1.5rem;background:var(--card);border:1px solid var(--line);border-radius:10px;overflow:auto}
+  #preview img{max-width:100%;height:auto;border-radius:6px}
+  #preview pre{background:var(--inset);border:1px solid var(--line);border-radius:6px;padding:1rem;overflow:auto}
+  #preview code{font-family:ui-monospace,monospace;font-size:.85rem}
+  #preview pre code{background:none;padding:0}
+  #preview table{border-collapse:collapse;width:100%;margin:1rem 0}
+  #preview th,#preview td{border:1px solid var(--line);padding:.5rem .8rem;text-align:left}
+  #preview th{background:var(--inset)}
+  #preview blockquote{border-left:3px solid var(--accent);padding-left:1rem;color:var(--dim);margin:1rem 0}
+  #preview hr{border:none;border-top:1px solid var(--line);margin:1.5rem 0}
+  .status{display:flex;gap:1rem;margin-top:.8rem;font-size:.75rem;color:var(--dim)}
+  .sync-toggle{display:flex;align-items:center;gap:.4rem}
+  .template-btns{display:flex;gap:.4rem;flex-wrap:wrap;margin-left:auto}
+</style>
+</head>
+<body>
+  <div style="max-width:1000px;margin:0 auto;padding:1rem 1rem 0">
+    <a href="/apps.html" style="color:var(--dim);font-size:.85rem;text-decoration:none">← PocketOS</a>
+  </div>
+  <div class="center">
+    <div class="toolbar">
+      <div class="template-btns" id="templates"></div>
+      <select id="theme">
+        <option value="github">GitHub Light</option>
+        <option value="github-dark" selected>GitHub Dark</option>
+        <option value="minimal">Minimal</option>
+      </select>
+      <button id="clearBtn">Clear</button>
+      <button id="copyMd">Copy Markdown</button>
+      <button id="copyHtml">Copy HTML</button>
+      <button id="downloadBtn">Download .md</button>
+      <input type="file" id="fileInput" accept=".md,.markdown,.txt" style="display:none">
+      <button id="openBtn">Open File</button>
+      <label class="sync-toggle"><input type="checkbox" id="syncScroll" checked> Sync scroll</label>
+    </div>
+
+    <div class="editor-wrap">
+      <div class="pane">
+        <label>Markdown</label>
+        <textarea id="editor" spellcheck="false" placeholder="Start typing Markdown…"></textarea>
+      </div>
+      <div class="pane">
+        <label>Preview</label>
+        <div id="preview"></div>
+      </div>
+    </div>
+
+    <div class="status">
+      <span id="wordCount">0 words</span>
+      <span id="charCount">0 chars</span>
+      <span id="lineCount">0 lines</span>
+      <span id="readTime">0 min read</span>
+    </div>
+  </div>
+
+<script>
+const $ = id => document.getElementById(id);
+
+const TEMPLATES = [
+  {name:"Blank", content:""},
+  {name:"README", content:`# Project Title
+
+> A brief description of what this project does.
+
+## Features
+
+- Feature 1
+- Feature 2
+- Feature 3
+
+## Installation
+
+\`\`\`bash
+npm install my-package
+\`\`\`
+
+## Usage
+
+\`\`\`js
+import { something } from 'my-package';
+
+something.doCoolThing();
+\`\`\`
+
+## License
+
+MIT
+`},
+  {name:"Changelog", content:`# Changelog
+
+All notable changes to this project will be documented in this file.
+
+## [Unreleased]
+
+### Added
+- New feature X
+
+### Changed
+- Improved performance of Y
+
+### Fixed
+- Bug in Z
+
+## [1.0.0] - 2024-01-15
+
+### Added
+- Initial release
+`},
+  {name:"Meeting Notes", content:`# Meeting: [Title]
+
+**Date:** ${new Date().toLocaleDateString()}
+**Attendees:** Name, Name
+
+## Agenda
+
+1. Item 1
+2. Item 2
+
+## Notes
+
+### Item 1
+- Discussion point
+- Action: @person to do thing
+
+### Item 2
+- Decision made
+
+## Action Items
+
+- [ ] Task 1 — @person
+- [ ] Task 2 — @person
+`},
+  {name:"Blog Post", content:`# Blog Post Title
+
+*Published: ${new Date().toLocaleDateString()}*
+
+## Introduction
+
+Hook the reader with an engaging opening.
+
+## Main Section
+
+Content goes here.
+
+### Subsection
+
+More details.
+
+## Conclusion
+
+Wrap up with a call to action.
+
+---
+
+*Tags: tag1, tag2*
+`},
+  {name:"Diary", content:`# ${new Date().toLocaleDateString()}
+
+## Mood
+😊 / 😐 / 😔
+
+## What happened
+
+-
+
+## Grateful for
+
+1.
+2.
+3.
+
+## Tomorrow
+-
+`}
+];
+
+function renderTemplates(){
+  $("templates").innerHTML = TEMPLATES.map((t,i)=>`<button data-i="${i}">${t.name}</button>`).join("");
+  $("templates").querySelectorAll("button").forEach(b=>b.onclick=()=>{
+    if($("editor").value.trim() && !confirm("Replace current content?")) return;
+    $("editor").value = TEMPLATES[+b.dataset.i].content;
+    update();
+  });
+}
+
+const MARKED_OPTIONS = {
+  breaks: true,
+  gfm: true,
+  headerIds: true,
+  mangle: false
+};
+
+function markdownToHtml(md){
+  return marked.parse(md, MARKED_OPTIONS);
+}
+
+function update(){
+  const md = $("editor").value;
+  $("preview").innerHTML = markdownToHtml(md);
+  updateStats(md);
+  hljs.highlightAll();
+}
+
+function updateStats(md){
+  const words = md.trim() ? md.trim().split(/\s+/).length : 0;
+  const chars = md.length;
+  const lines = md.split("\n").length;
+  const readTime = Math.ceil(words / 200);
+  $("wordCount").textContent = `${words} word${words!==1?"s":""}`;
+  $("charCount").textContent = `${chars} char${chars!==1?"s":""}`;
+  $("lineCount").textContent = `${lines} line${lines!==1?"s":""}`;
+  $("readTime").textContent = `${readTime} min read`;
+}
+
+function applyTheme(){
+  const theme = $("theme").value;
+  document.body.dataset.mdTheme = theme;
+  update();
+}
+
+$("editor").addEventListener("input", update);
+$("theme").onchange = applyTheme;
+
+$("clearBtn").onclick = ()=>{
+  if(confirm("Clear editor?")){ $("editor").value=""; update(); }
+};
+$("copyMd").onclick = ()=>{ navigator.clipboard.writeText($("editor").value); $("copyMd").textContent="Copied!"; setTimeout(()=>$("copyMd").textContent="Copy Markdown",1000); };
+$("copyHtml").onclick = ()=>{ navigator.clipboard.writeText($("preview").innerHTML); $("copyHtml").textContent="Copied!"; setTimeout(()=>$("copyHtml").textContent="Copy HTML",1000); };
+$("downloadBtn").onclick = ()=>{
+  const blob = new Blob([$("editor").value], {type:"text/markdown"});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = `note-${Date.now()}.md`; a.click();
+  URL.revokeObjectURL(url);
+};
+$("openBtn").onclick = ()=>$("fileInput").click();
+$("fileInput").onchange = (e)=>{
+  const f = e.target.files[0];
+  if(!f) return;
+  const reader = new FileReader();
+  reader.onload = ()=>{ $("editor").value = reader.result; update(); };
+  reader.readAsText(f);
+  e.target.value = "";
+};
+
+let lastScroll = {editor:0, preview:0};
+$("editor").addEventListener("scroll",()=>{
+  if(!$("syncScroll").checked) return;
+  const pct = $("editor").scrollTop / ($("editor").scrollHeight - $("editor").clientHeight);
+  $("preview").scrollTop = pct * ($("preview").scrollHeight - $("preview").clientHeight);
+});
+$("preview").addEventListener("scroll",()=>{
+  if(!$("syncScroll").checked) return;
+  const pct = $("preview").scrollTop / ($("preview").scrollHeight - $("preview").clientHeight);
+  $("editor").scrollTop = pct * ($("editor").scrollHeight - $("editor").clientHeight);
+});
+
+loadSaved();
+function loadSaved(){
+  try{
+    const saved = localStorage.getItem("pocketos.markdown");
+    if(saved) $("editor").value = saved;
+  }catch{}
+  update();
+}
+setInterval(()=>{ try{localStorage.setItem("pocketos.markdown", $("editor").value);}catch{} }, 2000);
+
+renderTemplates();
+applyTheme();
+</script>
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/lib/highlight.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/lib/languages/javascript.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/lib/languages/python.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/lib/languages/bash.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/lib/languages/json.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/lib/languages/html.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/lib/languages/css.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/lib/languages/sql.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/lib/languages/go.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/lib/languages/rust.min.js"></script>
+</body>
+</html>

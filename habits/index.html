@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Habits — PocketOS</title>
+<link rel="stylesheet" href="/shared.css">
+<style>
+  body{padding:1rem 1.2rem}
+  .center{max-width:500px;margin:0 auto}
+  .toolbar{display:flex;gap:.5rem;margin-bottom:1rem;flex-wrap:wrap}
+  #newHabit{flex:1;min-width:180px}
+  .habit{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:1rem;margin-bottom:.8rem}
+  .habit-header{display:flex;gap:.5rem;align-items:center;margin-bottom:.7rem}
+  .habit-name{flex:1;font-weight:600}
+  .habit-streak{background:var(--accent);color:#0b0f14;padding:.15rem .5rem;border-radius:999px;font-size:.7rem;font-weight:700}
+  .habit-del{background:none;border:none;color:var(--down);cursor:pointer;font-size:1.1rem;line-height:1;padding:.2rem}
+  .calendar{display:grid;grid-template-columns:repeat(7,1fr);gap:3px}
+  .cal-day{aspect-ratio:1;border-radius:6px;background:var(--inset);border:1px solid var(--line);font-size:.6rem;display:flex;align-items:center;justify-content:center;color:var(--dim)}
+  .cal-day.done{background:var(--up);border-color:var(--up);color:#0b0f14;font-weight:700}
+  .cal-day.today{box-shadow:0 0 0 2px var(--accent)}
+  .cal-label{display:grid;grid-template-columns:repeat(7,1fr);gap:3px;margin-bottom:.3rem;font-size:.6rem;color:var(--dim);text-align:center}
+  .empty{color:var(--dim);text-align:center;padding:2rem}
+  .stats{display:grid;grid-template-columns:repeat(3,1fr);gap:.7rem;margin-bottom:1rem}
+  .stat-card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:1rem;text-align:center}
+  .stat-value{font-size:1.8rem;font-weight:700}
+  .stat-label{font-size:.7rem;color:var(--dim);text-transform:uppercase;letter-spacing:.05em}
+</style>
+</head>
+<body>
+  <div style="max-width:500px;margin:0 auto;padding:1rem 1rem 0">
+    <a href="/apps.html" style="color:var(--dim);font-size:.85rem;text-decoration:none">← PocketOS</a>
+  </div>
+  <div class="center">
+    <div class="toolbar">
+      <input id="newHabit" type="text" placeholder="New habit (e.g. Drink water, Read 20min)…">
+      <button id="addBtn">＋ Add</button>
+    </div>
+    <div class="stats">
+      <div class="stat-card"><div class="stat-value" id="totalHabits">0</div><div class="stat-label">Habits</div></div>
+      <div class="stat-card"><div class="stat-value" id="doneToday">0</div><div class="stat-label">Done today</div></div>
+      <div class="stat-card"><div class="stat-value" id="bestStreak">0</div><div class="stat-label">Best streak</div></div>
+    </div>
+    <div id="list"></div>
+  </div>
+
+<script>
+const KEY = "pocketos.habits";
+const $ = id => document.getElementById(id);
+const todayKey = new Date().toDateString();
+
+function load(){ try{return JSON.parse(localStorage.getItem(KEY))||[]; }catch{return [];} }
+function save(h){ localStorage.setItem(KEY, JSON.stringify(h)); }
+
+function streakFor(habit){
+  let streak=0, max=0;
+  const dates = new Set(habit.done||[]);
+  const today = new Date();
+  for(let d=new Date(today);;d.setDate(d.getDate()-1)){
+    const k=d.toDateString();
+    if(dates.has(k)){ streak++; max=Math.max(max,streak); }
+    else if(k!==todayKey){ break; }
+    else{ /* today not done yet, continue checking yesterday */ }
+    if(streak>365) break;
+  }
+  return {current:streak, best:Math.max(max, habit.bestStreak||0)};
+}
+
+function render(){
+  const habits = load();
+  $("totalHabits").textContent = habits.length;
+  const today = habits.filter(h=>(h.done||[]).includes(todayKey)).length;
+  $("doneToday").textContent = today;
+  $("bestStreak").textContent = Math.max(...habits.map(h=>streakFor(h).best), 0);
+
+  if(!habits.length){
+    $("list").innerHTML = '<div class="empty">No habits yet. Add one above to start tracking.</div>';
+    return;
+  }
+  $("list").innerHTML = habits.map((h,i)=>{
+    const {current, best} = streakFor(h);
+    const cal = calendarHTML(h);
+    return `<div class="habit">
+      <div class="habit-header">
+        <span class="habit-name">${esc(h.name)}</span>
+        <span class="habit-streak">🔥 ${current}</span>
+        <button class="habit-del" data-i="${i}" title="Delete">✕</button>
+      </div>
+      <div class="cal-label">${["Su","Mo","Tu","We","Th","Fr","Sa"].map(d=>`<div>${d}</div>`).join("")}</div>
+      <div class="calendar">${cal}</div>
+    </div>`;
+  }).join("");
+
+  $("list").querySelectorAll(".habit-del").forEach(b=>b.onclick=()=>{
+    if(confirm("Delete this habit?")){
+      const habits=load(); habits.splice(+b.dataset.i,1); save(habits); render();
+    }
+  });
+  $("list").querySelectorAll(".cal-day:not(.label)").forEach(d=>d.onclick=()=>{
+    if(d.classList.contains("future")) return;
+    const i = +d.dataset.i;
+    const day = d.dataset.day;
+    const habits=load();
+    const h=habits[i];
+    h.done = h.done||[];
+    const idx = h.done.indexOf(day);
+    if(idx===-1) h.done.push(day); else h.done.splice(idx,1);
+    h.done.sort();
+    save(habits); render();
+  });
+}
+
+function calendarHTML(habit){
+  const today = new Date();
+  const first = new Date(today.getFullYear(), today.getMonth(), 1);
+  const startDow = first.getDay(); // 0=Sun
+  const daysInMonth = new Date(today.getFullYear(), today.getMonth()+1, 0).getDate();
+  const doneSet = new Set(habit.done||[]);
+  let html="";
+  for(let i=0;i<startDow;i++) html+=`<div class="cal-day"></div>`;
+  for(let d=1;d<=daysInMonth;d++){
+    const key = new Date(today.getFullYear(), today.getMonth(), d).toDateString();
+    const isFuture = d > today.getDate();
+    const done = doneSet.has(key);
+    html+=`<div class="cal-day${done?' done':''}${key===todayKey?' today':''}${isFuture?' future':''}" data-i="${habitsIndex}" data-day="${key}">${d}</div>`;
+  }
+  return html;
+}
+let habitsIndex=0;
+function calendarHTML2(habit, idx){
+  habitsIndex=idx;
+  const today = new Date();
+  const first = new Date(today.getFullYear(), today.getMonth(), 1);
+  const startDow = first.getDay();
+  const daysInMonth = new Date(today.getFullYear(), today.getMonth()+1, 0).getDate();
+  const doneSet = new Set(habit.done||[]);
+  let html="";
+  for(let i=0;i<startDow;i++) html+=`<div class="cal-day"></div>`;
+  for(let d=1;d<=daysInMonth;d++){
+    const key = new Date(today.getFullYear(), today.getMonth(), d).toDateString();
+    const isFuture = d > today.getDate();
+    const done = doneSet.has(key);
+    html+=`<div class="cal-day${done?' done':''}${key===todayKey?' today':''}${isFuture?' future':''}" data-i="${idx}" data-day="${key}">${d}</div>`;
+  }
+  return html;
+}
+
+function render(){
+  const habits = load();
+  $("totalHabits").textContent = habits.length;
+  const today = habits.filter(h=>(h.done||[]).includes(todayKey)).length;
+  $("doneToday").textContent = today;
+  $("bestStreak").textContent = Math.max(...habits.map(h=>streakFor(h).best), 0);
+
+  if(!habits.length){
+    $("list").innerHTML = '<div class="empty">No habits yet. Add one above to start tracking.</div>';
+    return;
+  }
+  $("list").innerHTML = habits.map((h,i)=>{
+    const {current, best} = streakFor(h);
+    return `<div class="habit">
+      <div class="habit-header">
+        <span class="habit-name">${esc(h.name)}</span>
+        <span class="habit-streak">🔥 ${current}</span>
+        <button class="habit-del" data-i="${i}" title="Delete">✕</button>
+      </div>
+      <div class="cal-label">${["Su","Mo","Tu","We","Th","Fr","Sa"].map(d=>`<div>${d}</div>`).join("")}</div>
+      <div class="calendar">${calendarHTML2(h,i)}</div>
+    </div>`;
+  }).join("");
+
+  $("list").querySelectorAll(".habit-del").forEach(b=>b.onclick=()=>{
+    if(confirm("Delete this habit?")){
+      const habits=load(); habits.splice(+b.dataset.i,1); save(habits); render();
+    }
+  });
+  $("list").querySelectorAll(".cal-day").forEach(d=>d.onclick=()=>{
+    if(d.classList.contains("future") || !d.dataset.day) return;
+    const i = +d.dataset.i;
+    const day = d.dataset.day;
+    const habits=load();
+    const h=habits[i];
+    h.done = h.done||[];
+    const idx = h.done.indexOf(day);
+    if(idx===-1) h.done.push(day); else h.done.splice(idx,1);
+    h.done.sort();
+    save(habits); render();
+  });
+}
+
+function esc(s){return String(s).replace(/[&<>"]/g,c=>({"&":"\u0026amp;","<":"\u0026lt;",">":"\u0026gt;",'"':"\u0026quot;"}[c]));}
+
+$("addBtn").onclick=()=>{
+  const t=$("newHabit").value.trim();
+  if(!t) return;
+  const habits=load(); habits.push({name:t,done:[]}); save(habits);
+  $("newHabit").value=""; render();
+};
+$("newHabit").addEventListener("keydown",e=>{ if(e.key==="Enter") $("addBtn").click(); });
+
+render();
+</script>
+</body>
+</html>

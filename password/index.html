@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Password Generator — PocketOS</title>
+<link rel="stylesheet" href="/shared.css">
+<style>
+  body{padding:1rem 1.2rem}
+  .center{max-width:500px;margin:0 auto}
+  .output{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:1.3rem;letter-spacing:.02em;background:var(--inset);border:1px solid var(--line);border-radius:10px;padding:1rem;text-align:center;word-break:break-all;min-height:3rem;position:relative}
+  .output.copied::after{content:"Copied!";position:absolute;bottom:-1.8rem;left:50%;transform:translateX(-50%);background:var(--up);color:#0b0f14;padding:.2rem .6rem;border-radius:6px;font-size:.7rem;font-weight:700;white-space:nowrap}
+  .entropy{display:grid;grid-template-columns:1fr 1fr;gap:.8rem;margin:1rem 0}
+  .ent-bar{height:8px;background:var(--inset);border:1px solid var(--line);border-radius:4px;overflow:hidden}
+  .ent-fill{height:100%;transition:width .3s ease,background .3s ease}
+  .ent-label{font-size:.75rem;color:var(--dim);display:flex;justify-content:space-between}
+  .options{display:grid;gap:.8rem;margin:1rem 0}
+  .opt-row{display:flex;align-items:center;gap:.8rem}
+  .opt-row label{flex:1;font-size:.9rem}
+  .opt-row input[type="range"]{flex:2}
+  .opt-row output{width:3.5rem;text-align:right;font-family:ui-monospace,monospace}
+  .checkboxes{display:grid;grid-template-columns:repeat(2,1fr);gap:.5rem}
+  .check{display:flex;align-items:center;gap:.5rem;font-size:.9rem}
+  .check input{width:18px;height:18px;accent-color:var(--accent)}
+  .presets{display:flex;gap:.5rem;flex-wrap:wrap;margin:1rem 0}
+  .presets button{flex:1;min-width:100px;padding:.7rem;border-radius:8px;background:var(--card);border:1px solid var(--line)}
+  .presets button.active{background:var(--accent);color:#0b0f14;border-color:var(--accent)}
+  .actions{display:flex;gap:.6rem;flex-wrap:wrap;margin-top:1rem}
+  .btn{padding:.7rem 1.2rem;border-radius:8px;font-weight:600;border:none}
+  .btn-primary{background:var(--accent);color:#0b0f14}
+  .btn-secondary{background:var(--card);border:1px solid var(--line)}
+  .info{font-size:.75rem;color:var(--dim);margin-top:.8rem;line-height:1.6}
+</style>
+</head>
+<body>
+  <div style="max-width:500px;margin:0 auto;padding:1rem 1rem 0">
+    <a href="/apps.html" style="color:var(--dim);font-size:.85rem;text-decoration:none">← PocketOS</a>
+  </div>
+  <div class="center">
+    <h2 style="margin:0 0 .3rem">Password Generator</h2>
+    <p class="dim" style="margin:0 0 1rem">Cryptographically secure passwords — generated locally.</p>
+
+    <div class="output" id="output">—</div>
+
+    <div class="entropy">
+      <div>
+        <div class="ent-label"><span>Entropy</span><span id="entBits">0 bits</span></div>
+        <div class="ent-bar"><div class="ent-fill" id="entFill" style="width:0%"></div></div>
+      </div>
+      <div>
+        <div class="ent-label"><span>Crack time</span><span id="entTime">instant</span></div>
+        <div class="ent-bar"><div class="ent-fill" id="entFill2" style="width:0%"></div></div>
+      </div>
+    </div>
+
+    <div class="options">
+      <div class="opt-row">
+        <label>Length</label>
+        <input type="range" id="len" min="4" max="128" value="16">
+        <output id="lenVal">16</output>
+      </div>
+    </div>
+
+    <div class="checkboxes" id="charsets"></div>
+
+    <div class="presets" id="presets"></div>
+
+    <div class="actions">
+      <button class="btn btn-primary" id="genBtn">Generate</button>
+      <button class="btn btn-secondary" id="copyBtn">Copy</button>
+    </div>
+
+    <div class="info" id="info"></div>
+  </div>
+
+<script>
+const CHARSETS = [
+  {id:"lower", name:"Lowercase (a-z)", chars:"abcdefghijklmnopqrstuvwxyz"},
+  {id:"upper", name:"Uppercase (A-Z)", chars:"ABCDEFGHIJKLMNOPQRSTUVWXYZ"},
+  {id:"digits", name:"Digits (0-9)", chars:"0123456789"},
+  {id:"symbols", name:"Symbols (!@#$...)", chars:"!@#$%^&*()_+-=[]{}|;:,.<>?"},
+  {id:"ambiguous", name:"Exclude ambiguous (il1|o0)", chars:"", exclude:true}
+];
+
+const PRESETS = [
+  {name:"Memorable", len:20, sets:["lower","upper","digits"], sep:"-"},
+  {name:"Strong", len:16, sets:["lower","upper","digits","symbols"]},
+  {name:"PIN", len:6, sets:["digits"]},
+  {name:"Passphrase", len:4, sets:["words"], words:true},
+  {name:"Custom", len:16, sets:["lower","upper","digits","symbols"]}
+];
+
+const WORDS = [
+  "alpha","bravo","charlie","delta","echo","foxtrot","golf","hotel","india","juliet",
+  "kilo","lima","mike","november","oscar","papa","quebec","romeo","sierra","tango",
+  "uniform","victor","whiskey","xray","yankee","zulu","apple","banana","cherry","donut",
+  "eagle","falcon","guitar","hammer","island","jungle","kitten","lemon","mountain","nebula",
+  "ocean","planet","quantum","rocket","sunset","tiger","umbrella","volcano","waterfall","xylophone",
+  "yacht","zeppelin","bamboo","crystal","diamond","emerald","forest","galaxy","horizon","infinity"
+];
+
+let state = {len:16, sets:["lower","upper","digits","symbols"], sep:""};
+
+function $(id){return document.getElementById(id)}
+
+function renderCharsets(){
+  $("charsets").innerHTML = CHARSETS.map(c=>
+    `<label class="check"><input type="checkbox" data-id="${c.id}" ${state.sets.includes(c.id)?"checked":""}> ${c.name}</label>`
+  ).join("");
+  $("charsets").querySelectorAll("input").forEach(cb=>{
+    cb.onchange=()=>{
+      const id=cb.dataset.id;
+      if(cb.checked){ if(!state.sets.includes(id)) state.sets.push(id); }
+      else { state.sets = state.sets.filter(s=>s!==id); }
+      if(!state.sets.length){ cb.checked=true; state.sets.push(id); }
+      updatePresetActive(); generate();
+    };
+  });
+}
+
+function renderPresets(){
+  $("presets").innerHTML = PRESETS.map((p,i)=>
+    `<button class="${i===0?'active':''}" data-i="${i}">${p.name}</button>`
+  ).join("");
+  $("presets").querySelectorAll("button").forEach(b=>b.onclick=()=>{
+    const p=PRESETS[+b.dataset.i];
+    state.len=p.len; state.sets=[...p.sets]; state.sep=p.sep||"";
+    if(p.words){ state.words=true; } else { delete state.words; }
+    $("len").value=state.len; $("lenVal").textContent=state.len;
+    renderCharsets(); updatePresetActive(); generate();
+  });
+}
+
+function updatePresetActive(){
+  const buttons = $("presets").querySelectorAll("button");
+  let matched = -1;
+  PRESETS.forEach((p,i)=>{
+    const setsMatch = p.sets.length===state.sets.length && p.sets.every(s=>state.sets.includes(s));
+    const lenMatch = p.len===state.len;
+    const wordsMatch = !!p.words === !!state.words;
+    if(setsMatch && lenMatch && wordsMatch) matched=i;
+  });
+  buttons.forEach((b,i)=>b.classList.toggle("active", i===matched));
+}
+
+function generate(){
+  if(state.words){
+    const count = state.len;
+    const selected = [];
+    for(let i=0;i<count;i++){
+      selected.push(WORDS[Math.floor(Math.random()*WORDS.length)]);
+    }
+    const pass = selected.join(state.sep||" ");
+    $("output").textContent = pass;
+    updateEntropy(selected.length * Math.log2(WORDS.length));
+    $("info").textContent = `Passphrase: ${count} words from ${WORDS.length} word list. Entropy: ${(count * Math.log2(WORDS.length)).toFixed(1)} bits.`;
+    return;
+  }
+
+  let pool = "";
+  state.sets.forEach(id=>{
+    const cs = CHARSETS.find(c=>c.id===id);
+    if(cs && !cs.exclude) pool += cs.chars;
+  });
+
+  // Remove ambiguous if enabled
+  if(state.sets.includes("ambiguous")){
+    pool = pool.replace(/[il1|o0]/g,"");
+  }
+
+  if(!pool){ $("output").textContent="Select at least one character set"; return; }
+
+  const arr = new Uint32Array(state.len);
+  crypto.getRandomValues(arr);
+  let pass = "";
+  for(let i=0;i<state.len;i++) pass += pool[arr[i] % pool.length];
+
+  $("output").textContent = pass;
+  updateEntropy(state.len * Math.log2(pool.length));
+  $("info").textContent = `Pool: ${pool.length} chars. Entropy: ${(state.len * Math.log2(pool.length)).toFixed(1)} bits.`;
+}
+
+function updateEntropy(bits){
+  $("entBits").textContent = `${bits.toFixed(1)} bits`;
+  const pct = Math.min(100, (bits/128)*100);
+  $("entFill").style.width = `${pct}%`;
+  $("entFill").style.background = bits<60?"var(--down)":bits<100?"#fbbf24":"var(--up)";
+
+  let time;
+  if(bits<40) time="instant";
+  else if(bits<60) time="seconds";
+  else if(bits<80) time="hours";
+  else if(bits<100) time="years";
+  else if(bits<120) time="centuries";
+  else time="millennia+";
+  $("entTime").textContent = time;
+  $("entFill2").style.width = `${pct}%`;
+  $("entFill2").style.background = $("entFill").style.background;
+}
+
+function copy(){
+  const txt = $("output").textContent;
+  if(txt==="—"||txt.includes("Select")) return;
+  navigator.clipboard.writeText(txt).then(()=>{
+    $("output").classList.add("copied");
+    setTimeout(()=>$("output").classList.remove("copied"),1500);
+  });
+}
+
+$("len").oninput=()=>{ state.len=+$("len").value; $("lenVal").textContent=state.len; updatePresetActive(); generate(); };
+$("genBtn").onclick=generate;
+$("copyBtn").onclick=copy;
+
+renderCharsets();
+renderPresets();
+generate();
+</script>
+</body>
+</html>

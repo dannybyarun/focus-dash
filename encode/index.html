@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Encode / Hash — PocketOS</title>
+<link rel="stylesheet" href="/shared.css">
+<style>
+  body{padding:1rem 1.2rem}
+  .center{max-width:600px;margin:0 auto}
+  .tabs{display:flex;gap:.4rem;margin-bottom:1rem;flex-wrap:wrap}
+  .tab{padding:.5rem .9rem;border-radius:8px;background:var(--card);border:1px solid var(--line);font-size:.85rem}
+  .tab.active{background:var(--accent);color:#0b0f14;border-color:var(--accent)}
+  .panel{display:none}
+  .panel.active{display:block}
+  .io-row{display:grid;grid-template-columns:1fr 1fr;gap:.8rem;margin-bottom:.8rem}
+  .field label{display:block;font-size:.75rem;color:var(--dim);margin-bottom:.3rem;text-transform:uppercase;letter-spacing:.03em}
+  .field textarea{min-height:120px;font-family:ui-monospace,monospace;font-size:.85rem;resize:vertical}
+  .field input{font-family:ui-monospace,monospace}
+  .actions{display:flex;gap:.5rem;flex-wrap:wrap;margin-bottom:1rem}
+  .actions button{padding:.5rem .9rem;border-radius:8px;background:var(--card);border:1px solid var(--line)}
+  .actions button.primary{background:var(--accent);color:#0b0f14;border-color:var(--accent)}
+  .result{font-family:ui-monospace,monospace;background:var(--inset);border:1px solid var(--line);border-radius:10px;padding:1rem;min-height:80px;white-space:pre-wrap;word-break:break-all;position:relative}
+  .result.copied::after{content:"Copied!";position:absolute;top:.5rem;right:.5rem;background:var(--up);color:#0b0f14;padding:.2rem .5rem;border-radius:4px;font-size:.7rem;font-weight:700}
+  .hash-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:.6rem}
+  .hash-card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:.8rem}
+  .hash-card label{font-size:.65rem;color:var(--dim);text-transform:uppercase;letter-spacing:.03em;display:block;margin-bottom:.3rem}
+  .hash-card output{font-family:ui-monospace,monospace;font-size:.75rem;word-break:break-all}
+  .hash-card button{margin-top:.4rem;padding:.3rem .6rem;border-radius:6px;background:var(--inset);border:1px solid var(--line);font-size:.7rem}
+  .jwt-section{margin-top:1rem}
+  .jwt-parts{display:grid;grid-template-columns:1fr 1fr 1fr;gap:.6rem;margin-top:.5rem}
+  .jwt-part label{font-size:.7rem;color:var(--dim);display:block;margin-bottom:.2rem}
+  .jwt-part textarea{min-height:100px;font-family:ui-monospace,monospace;font-size:.7rem}
+</style>
+</head>
+<body>
+  <div style="max-width:600px;margin:0 auto;padding:1rem 1rem 0">
+    <a href="/apps.html" style="color:var(--dim);font-size:.85rem;text-decoration:none">← PocketOS</a>
+  </div>
+  <div class="center">
+    <h2 style="margin:0 0 .3rem">Encode / Hash</h2>
+    <p class="dim" style="margin:0 0 1rem">Base64, URL, Hash, JWT — all client-side via Web Crypto API.</p>
+
+    <div class="tabs" id="tabs"></div>
+
+    <!-- Encode/Decode -->
+    <div class="panel active" id="encode">
+      <div class="io-row">
+        <div class="field"><label>Input</label><textarea id="encIn" placeholder="Text to encode/decode…"></textarea></div>
+        <div class="field"><label>Output</label><textarea id="encOut" readonly placeholder="Result…"></textarea></div>
+      </div>
+      <div class="actions">
+        <button class="primary" id="b64Enc">Base64 Encode</button>
+        <button class="primary" id="b64Dec">Base64 Decode</button>
+        <button id="urlEnc">URL Encode</button>
+        <button id="urlDec">URL Decode</button>
+        <button id="htmlEnc">HTML Escape</button>
+        <button id="htmlDec">HTML Unescape</button>
+        <button id="copyEnc">Copy Output</button>
+        <button id="swapEnc">⇄ Swap</button>
+      </div>
+    </div>
+
+    <!-- Hash -->
+    <div class="panel" id="hash">
+      <div class="field" style="margin-bottom:.8rem"><label>Input</label><textarea id="hashIn" placeholder="Text to hash…"></textarea></div>
+      <div class="actions">
+        <button class="primary" id="hashAll">Compute All</button>
+        <button id="copyHashes">Copy All</button>
+        <button id="clearHash">Clear</button>
+      </div>
+      <div class="hash-grid" id="hashGrid"></div>
+    </div>
+
+    <!-- HMAC -->
+    <div class="panel" id="hmac">
+      <div class="io-row">
+        <div class="field"><label>Message</label><textarea id="hmacMsg" placeholder="Message…"></textarea></div>
+        <div class="field"><label>Secret Key</label><textarea id="hmacKey" placeholder="Secret key…"></textarea></div>
+      </div>
+      <div class="actions">
+        <button class="primary" id="hmacSha256">HMAC-SHA256</button>
+        <button class="primary" id="hmacSha512">HMAC-SHA512</button>
+        <button id="copyHmac">Copy</button>
+      </div>
+      <div class="field"><label>Result</label><textarea id="hmacOut" readonly></textarea></div>
+    </div>
+
+    <!-- JWT -->
+    <div class="panel" id="jwt">
+      <div class="field" style="margin-bottom:.5rem"><label>JWT Token</label><textarea id="jwtIn" placeholder="Paste a JWT to decode…"></textarea></div>
+      <div class="actions">
+        <button class="primary" id="jwtDecode">Decode</button>
+        <button id="jwtCopyHeader">Copy Header</button>
+        <button id="jwtCopyPayload">Copy Payload</button>
+        <button id="jwtCopySig">Copy Signature</button>
+      </div>
+      <div class="jwt-section">
+        <div class="jwt-parts">
+          <div class="jwt-part"><label>Header</label><textarea id="jwtHeader" readonly></textarea></div>
+          <div class="jwt-part"><label>Payload</label><textarea id="jwtPayload" readonly></textarea></div>
+          <div class="jwt-part"><label>Signature</label><textarea id="jwtSig" readonly></textarea></div>
+        </div>
+      </div>
+      <div style="margin-top:1rem;padding:1rem;background:var(--inset);border:1px solid var(--line);border-radius:10px;font-size:.8rem">
+        <strong>Create JWT:</strong> Use the <a href="/encode/#hash" style="color:var(--accent)">HMAC</a> tab with your secret, then construct: <code>base64url(header).base64url(payload).base64url(signature)</code>
+      </div>
+    </div>
+  </div>
+
+<script>
+const $ = id => document.getElementById(id);
+
+const TABS = [
+  {id:"encode", name:"🔄 Encode/Decode"},
+  {id:"hash", name:"#️⃣ Hash"},
+  {id:"hmac", name:"🔐 HMAC"},
+  {id:"jwt", name:"🎫 JWT"}
+];
+
+function renderTabs(){
+  $("tabs").innerHTML = TABS.map(t=>`<button class="tab${t.id==="encode"?" active":""}" data-id="${t.id}">${t.name}</button>`).join("");
+  $("tabs").querySelectorAll("button").forEach(b=>b.onclick=()=>{
+    document.querySelectorAll(".panel").forEach(p=>p.classList.remove("active"));
+    document.querySelectorAll(".tab").forEach(t=>t.classList.remove("active"));
+    $(b.dataset.id).classList.add("active");
+    b.classList.add("active");
+  });
+}
+
+// Base64 (URL-safe)
+function b64enc(str){ return btoa(unescape(encodeURIComponent(str))).replace(/\+/g,"-").replace(/\//g,"_").replace(/=/g,""); }
+function b64dec(str){ try{ str=str.replace(/-/g,"+").replace(/_/g,"/"); while(str.length%4) str+="="; return decodeURIComponent(escape(atob(str))); }catch{ return "Invalid Base64"; } }
+function b64stdEnc(str){ return btoa(unescape(encodeURIComponent(str))); }
+function b64stdDec(str){ try{ while(str.length%4) str+="="; return decodeURIComponent(escape(atob(str))); }catch{ return "Invalid Base64"; } }
+
+// URL
+function urlEnc(str){ return encodeURIComponent(str); }
+function urlDec(str){ try{ return decodeURIComponent(str); }catch{ return "Invalid URL encoding"; } }
+
+// HTML
+function htmlEsc(str){ return str.replace(/&/g,"\u0026amp;").replace(/</g,"\u0026lt;").replace(/>/g,"\u0026gt;").replace(/"/g,"\u0026quot;").replace(/'/g,"\u0026#39;"); }
+function htmlUnesc(str){ return str.replace(/\u0026amp;/g,"&").replace(/\u0026lt;/g,"<").replace(/\u0026gt;/g,">").replace(/\u0026quot;/g,'"').replace(/\u0026#39;/g,"'"); }
+
+// Hash algorithms
+async function hashText(algo, msg){
+  const enc = new TextEncoder();
+  const buf = await crypto.subtle.digest(algo, enc.encode(msg));
+  return Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,"0")).join("");
+}
+
+async function hmacText(algo, key, msg){
+  const enc = new TextEncoder();
+  const cryptoKey = await crypto.subtle.importKey("raw", enc.encode(key), {name:"HMAC", hash:algo}, false, ["sign"]);
+  const sig = await crypto.subtle.sign("HMAC", cryptoKey, enc.encode(msg));
+  return Array.from(new Uint8Array(sig)).map(b=>b.toString(16).padStart(2,"0")).join("");
+}
+
+function setOut(el, val){
+  el.value = val;
+  el.classList.add("copied");
+  setTimeout(()=>el.classList.remove("copied"),1000);
+}
+
+function copyText(txt){
+  navigator.clipboard.writeText(txt);
+  // visual feedback handled by caller
+}
+
+// Encode tab
+$("b64Enc").onclick=()=>setOut($("encOut"), b64stdEnc($("encIn").value));
+$("b64Dec").onclick=()=>setOut($("encOut"), b64stdDec($("encIn").value));
+$("urlEnc").onclick=()=>setOut($("encOut"), urlEnc($("encIn").value));
+$("urlDec").onclick=()=>setOut($("encOut"), urlDec($("encIn").value));
+$("htmlEnc").onclick=()=>setOut($("encOut"), htmlEsc($("encIn").value));
+$("htmlDec").onclick=()=>setOut($("encOut"), htmlUnesc($("encIn").value));
+$("copyEnc").onclick=()=>{ copyText($("encOut").value); setOut($("encOut"), $("encOut").value); };
+$("swapEnc").onclick=()=>{ const t=$("encIn").value; $("encIn").value=$("encOut").value; $("encOut").value=t; };
+
+// Hash tab
+const HASH_ALGOS = [
+  {id:"SHA-1", name:"SHA-1 (160-bit)", deprecated:true},
+  {id:"SHA-256", name:"SHA-256 (256-bit)"},
+  {id:"SHA-384", name:"SHA-384 (384-bit)"},
+  {id:"SHA-512", name:"SHA-512 (512-bit)"},
+  {id:"MD5", name:"MD5 (128-bit)", deprecated:true}
+];
+
+function renderHashGrid(){
+  $("hashGrid").innerHTML = HASH_ALGOS.map(a=>`
+    <div class="hash-card${a.deprecated?" dim":""}">
+      <label>${a.name}</label>
+      <output id="hash-${a.id}">—</output>
+      <button data-algo="${a.id}">Copy</button>
+    </div>
+  `).join("");
+  $("hashGrid").querySelectorAll("button").forEach(b=>{
+    b.onclick=()=>{ copyText($( `hash-${b.dataset.algo}` ).textContent); b.textContent="Copied!"; setTimeout(()=>b.textContent="Copy",1000); };
+  });
+}
+
+$("hashAll").onclick=async()=>{
+  const msg = $("hashIn").value;
+  for(const a of HASH_ALGOS){
+    $(`hash-${a.id}`).textContent = "Computing…";
+  }
+  for(const a of HASH_ALGOS){
+    const h = await hashText(a.id, msg);
+    $(`hash-${a.id}`).textContent = h;
+  }
+};
+$("copyHashes").onclick=()=>{
+  const out = HASH_ALGOS.map(a=>`${a.name}: ${$(`hash-${a.id}`).textContent}`).join("\n");
+  copyText(out);
+  const btn=$("copyHashes"); btn.textContent="Copied!"; setTimeout(()=>btn.textContent="Copy All",1000);
+};
+$("clearHash").onclick=()=>{ $("hashIn").value=""; HASH_ALGOS.forEach(a=>$(`hash-${a.id}`).textContent="—"); };
+
+renderHashGrid();
+
+// HMAC tab
+$("hmacSha256").onclick=async()=>{
+  const out = await hmacText("SHA-256", $("hmacKey").value, $("hmacMsg").value);
+  setOut($("hmacOut"), out);
+};
+$("hmacSha512").onclick=async()=>{
+  const out = await hmacText("SHA-512", $("hmacKey").value, $("hmacMsg").value);
+  setOut($("hmacOut"), out);
+};
+$("copyHmac").onclick=()=>{ copyText($("hmacOut").value); setOut($("hmacOut"), $("hmacOut").value); };
+
+// JWT tab
+function base64UrlDecode(str){
+  str=str.replace(/-/g,"+").replace(/_/g,"/");
+  while(str.length%4) str+="=";
+  try{ return JSON.parse(decodeURIComponent(escape(atob(str)))); }catch{ return str; }
+}
+
+$("jwtDecode").onclick=()=>{
+  const token = $("jwtIn").value.trim();
+  const parts = token.split(".");
+  if(parts.length!==3){ alert("Invalid JWT format (expected 3 parts)"); return; }
+  const header = base64UrlDecode(parts[0]);
+  const payload = base64UrlDecode(parts[1]);
+  const sig = parts[2];
+  $("jwtHeader").value = typeof header==="object"?JSON.stringify(header,null,2):header;
+  $("jwtPayload").value = typeof payload==="object"?JSON.stringify(payload,null,2):payload;
+  $("jwtSig").value = sig;
+};
+$("jwtCopyHeader").onclick=()=>{ copyText($("jwtHeader").value); };
+$("jwtCopyPayload").onclick=()=>{ copyText($("jwtPayload").value); };
+$("jwtCopySig").onclick=()=>{ copyText($("jwtSig").value); };
+
+renderTabs();
+</script>
+</body>
+</html>

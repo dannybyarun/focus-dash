@@ -1,0 +1,365 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>JSON/YAML Tool — PocketOS</title>
+<link rel="stylesheet" href="/shared.css">
+<style>
+  body{padding:1rem 1.2rem}
+  .center{max-width:1000px;margin:0 auto}
+  .toolbar{display:flex;gap:.5rem;margin-bottom:.8rem;flex-wrap:wrap}
+  .toolbar button{padding:.5rem .9rem;border-radius:8px;background:var(--card);border:1px solid var(--line);font-size:.8rem}
+  .toolbar button.primary{background:var(--accent);color:#0b0f14;border-color:var(--accent)}
+  .toolbar select{padding:.5rem .8rem;border-radius:8px;background:var(--inset);border:1px solid var(--line);color:var(--text)}
+  .editor-wrap{display:grid;grid-template-columns:1fr 1fr;gap:1rem}
+  @media (max-width:800px){ .editor-wrap{grid-template-columns:1fr} }
+  .pane{display:flex;flex-direction:column}
+  .pane label{font-size:.7rem;color:var(--dim);margin-bottom:.3rem;text-transform:uppercase;letter-spacing:.03em}
+  textarea{flex:1;min-height:450px;resize:vertical;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.8rem;line-height:1.5}
+  .error{background:rgba(248,113,113,.15);border:1px solid var(--down);color:var(--down);padding:.8rem;border-radius:8px;font-family:monospace;font-size:.75rem;margin-bottom:.8rem}
+  .tree{flex:1;min-height:450px;padding:1rem;background:var(--card);border:1px solid var(--line);border-radius:10px;overflow:auto;font-family:ui-monospace,monospace;font-size:.8rem;line-height:1.6;white-space:pre}
+  .tree .key{color:#d2a8ff}
+  .tree .string{color:#79c0ff}
+  .tree .number{color:#ffa657}
+  .tree .bool{color:#ff7b72}
+  .tree .null{color:#8b98a5;font-style:italic}
+  .tree .brace{color:#c9d1d9}
+  .status{display:flex;gap:1rem;margin-top:.8rem;font-size:.75rem;color:var(--dim)}
+  .query-section{margin-top:1rem;padding:1rem;background:var(--inset);border:1px solid var(--line);border-radius:10px}
+  .query-section label{font-size:.7rem;color:var(--dim);display:block;margin-bottom:.4rem}
+  .query-row{display:flex;gap:.5rem;flex-wrap:wrap}
+  .query-row input{flex:1;min-width:200px}
+  .query-results{max-height:200px;overflow:auto;margin-top:.5rem;background:var(--card);border:1px solid var(--line);border-radius:8px;padding:.5rem;font-family:monospace;font-size:.75rem}
+</style>
+</head>
+<body>
+  <div style="max-width:1000px;margin:0 auto;padding:1rem 1rem 0">
+    <a href="/apps.html" style="color:var(--dim);font-size:.85rem;text-decoration:none">← PocketOS</a>
+  </div>
+  <div class="center">
+    <div class="toolbar">
+      <select id="inputFormat"><option value="json">JSON Input</option><option value="yaml">YAML Input</option></select>
+      <select id="outputFormat"><option value="json">JSON Output</option><option value="yaml">YAML Output</option></select>
+      <button class="primary" id="formatBtn">Format / Convert</button>
+      <button id="minifyBtn">Minify</button>
+      <button id="validateBtn">Validate</button>
+      <button id="copyBtn">Copy Output</button>
+      <button id="downloadBtn">Download</button>
+      <button id="clearBtn">Clear</button>
+      <input type="file" id="fileInput" accept=".json,.yaml,.yml,.txt" style="display:none">
+      <button id="openBtn">Open File</button>
+    </div>
+
+    <div id="error"></div>
+
+    <div class="editor-wrap">
+      <div class="pane">
+        <label>Input</label>
+        <textarea id="input" spellcheck="false" placeholder="Paste JSON or YAML here…"></textarea>
+      </div>
+      <div class="pane">
+        <label>Output / Tree View</label>
+        <div class="tree" id="tree"></div>
+      </div>
+    </div>
+
+    <div class="query-section">
+      <label>JSONPath Query (e.g. $.store.book[0].author, $..author, $[*].price)</label>
+      <div class="query-row">
+        <input type="text" id="query" placeholder="Enter JSONPath query…">
+        <button id="queryBtn">Query</button>
+      </div>
+      <div class="query-results" id="queryResults"></div>
+    </div>
+
+    <div class="status">
+      <span id="charCount">0 chars</span>
+      <span id="lineCount">0 lines</span>
+      <span id="byteSize">0 bytes</span>
+    </div>
+  </div>
+
+<script>
+const $ = id => document.getElementById(id);
+
+let lastParsed = null;
+let lastError = null;
+
+// Simple YAML parser (subset)
+function parseYAML(str){
+  const lines = str.split("\n");
+  const stack = [{indent:-1, obj:{}, key:null}];
+  let root = {};
+
+  for(let i=0;i<lines.length;i++){
+    let line = lines[i];
+    const commentIdx = line.indexOf("#");
+    if(commentIdx===0) continue;
+    if(commentIdx>0) line = line.slice(0,commentIdx);
+    if(!line.trim()) continue;
+
+    const indent = line.search(/\S/);
+    const trimmed = line.trim();
+
+    // Handle key: value
+    const colonIdx = trimmed.indexOf(":");
+    if(colonIdx===-1) throw new Error(`Line ${i+1}: Expected ':'`);
+    const key = trimmed.slice(0,colonIdx).trim();
+    let value = trimmed.slice(colonIdx+1).trim();
+
+    // Find parent
+    while(stack.length>0 && stack[stack.length-1].indent >= indent){
+      stack.pop();
+    }
+    const parent = stack[stack.length-1].obj;
+    const parentKey = stack[stack.length-1].key;
+
+    // Determine value type
+    if(value==="" || value==="~"){
+      value = null;
+    }else if(value==="true" || value==="false"){
+      value = value==="true";
+    }else if(/^-?\d+$/.test(value)){
+      value = parseInt(value,10);
+    }else if(/^-?\d+\.\d+$/.test(value)){
+      value = parseFloat(value);
+    }else if((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))){
+      value = value.slice(1,-1);
+    }else if(value.startsWith("[") && value.endsWith("]")){
+      try{ value = JSON.parse(value); }catch{ /* keep as string */ }
+    }else if(value.startsWith("{") && value.endsWith("}")){
+      try{ value = JSON.parse(value); }catch{ /* keep as string */ }
+    }
+
+    if(parentKey !== null && Array.isArray(parent[parentKey])){
+      parent[parentKey].push({[key]: value});
+    }else{
+      parent[key] = value;
+    }
+
+    // If value is object/array, push to stack for nested
+    if(value && typeof value==="object" && !Array.isArray(value)){
+      stack.push({indent, obj:value, key:key});
+    }
+  }
+
+  return stack[0].obj;
+}
+
+function parseInput(str, format){
+  str = str.trim();
+  if(!str) return null;
+  if(format==="yaml"){
+    try{ return parseYAML(str); }catch(e){ throw new Error("YAML parse error: "+e.message); }
+  }else{
+    try{ return JSON.parse(str); }catch(e){ throw new Error("JSON parse error: "+e.message); }
+  }
+}
+
+function stringify(obj, format, minify=false){
+  if(format==="yaml") return toYAML(obj, minify);
+  return minify ? JSON.stringify(obj) : JSON.stringify(obj, null, 2);
+}
+
+function toYAML(obj, minify, indent=0){
+  const spaces = "  ".repeat(indent);
+  if(obj===null) return `${spaces}null`;
+  if(Array.isArray(obj)){
+    if(obj.length===0) return `${spaces}[]`;
+    return obj.map(v=>`${spaces}- ${toYAML(v, minify, indent+1).trim()}`).join(minify?" ":"\n");
+  }
+  if(typeof obj==="object"){
+    const keys = Object.keys(obj);
+    if(keys.length===0) return `${spaces}{}`;
+    return keys.map(k=>{
+      const v = obj[k];
+      const val = toYAML(v, minify, indent+1);
+      return `${spaces}${k}: ${val.trim()}`;
+    }).join(minify?" ":"\n");
+  }
+  if(typeof obj==="string"){
+    if(/[:\-\[\]{}#&*!|>'"%@`]/.test(obj) || obj.includes("\n") || obj.startsWith(" ")) return `${spaces}"${obj.replace(/"/g,'\\"')}"`;
+    return `${spaces}${obj}`;
+  }
+  return `${spaces}${obj}`;
+}
+
+function syntaxHighlight(json){
+  return json
+    .replace(/("(\\u[a-zA-Z0-9]{4}|\\[^u]|[^\\"])*"(\s*:)?)/g, (m)=>{
+      if(m.endsWith(":")) return `<span class="key">${escapeHtml(m)}</span>`;
+      return `<span class="string">${escapeHtml(m)}</span>`;
+    })
+    .replace(/(\b\d+\.?\d*\b)/g, '<span class="number">$1</span>')
+    .replace(/\b(true|false)\b/g, '<span class="bool">$1</span>')
+    .replace(/\bnull\b/g, '<span class="null">null</span>')
+    .replace(/([{}[\],:])/g, '<span class="brace">$1</span>');
+}
+
+function escapeHtml(str){
+  return str.replace(/&/g,"&").replace(/</g,"<").replace(/>/g,">");
+}
+
+function renderTree(obj){
+  if(obj===null || obj===undefined){
+    $("tree").innerHTML = '<span class="null">null</span>';
+    return;
+  }
+  const json = JSON.stringify(obj, null, 2);
+  $("tree").innerHTML = syntaxHighlight(escapeHtml(json));
+}
+
+function updateStats(str){
+  $("charCount").textContent = `${str.length} chars`;
+  $("lineCount").textContent = `${str.split("\n").length} lines`;
+  $("byteSize").textContent = `${new Blob([str]).size} bytes`;
+}
+
+function showError(msg){
+  $("error").innerHTML = `<div class="error">${escapeHtml(msg)}</div>`;
+  $("tree").innerHTML = "";
+  lastError = msg;
+}
+
+function clearError(){ $("error").innerHTML = ""; lastError = null; }
+
+function process(){
+  clearError();
+  const input = $("input").value;
+  updateStats(input);
+  if(!input.trim()){
+    $("tree").innerHTML = "";
+    lastParsed = null;
+    return;
+  }
+  try{
+    lastParsed = parseInput(input, $("inputFormat").value);
+    renderTree(lastParsed);
+    const out = stringify(lastParsed, $("outputFormat").value);
+    // Keep input as-is, output shown in tree
+  }catch(e){
+    showError(e.message);
+    lastParsed = null;
+  }
+}
+
+function formatConvert(){
+  if(!lastParsed && !$("input").value.trim()) return;
+  process();
+  if(lastParsed){
+    const out = stringify(lastParsed, $("outputFormat").value);
+    $("input").value = out;
+    $("inputFormat").value = $("outputFormat").value;
+    process();
+  }
+}
+
+function minify(){
+  if(!lastParsed) return;
+  const out = stringify(lastParsed, $("outputFormat").value, true);
+  $("input").value = out;
+  process();
+}
+
+function validate(){
+  process();
+  if(!lastError) alert("✓ Valid " + $("inputFormat").value.toUpperCase());
+}
+
+function copyOut(){
+  if(!lastParsed) return;
+  const out = stringify(lastParsed, $("outputFormat").value);
+  navigator.clipboard.writeText(out);
+  const btn=$("copyBtn"); btn.textContent="Copied!"; setTimeout(()=>btn.textContent="Copy Output",1000);
+}
+
+function download(){
+  if(!lastParsed) return;
+  const out = stringify(lastParsed, $("outputFormat").value);
+  const ext = $("outputFormat").value==="yaml"?"yml":"json";
+  const blob = new Blob([out], {type:"text/plain"});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href=url; a.download=`data-${Date.now()}.${ext}`; a.click();
+  URL.revokeObjectURL(url);
+}
+
+function clearAll(){
+  $("input").value="";
+  $("tree").innerHTML="";
+  $("queryResults").innerHTML="";
+  clearError();
+  lastParsed=null;
+  updateStats("");
+}
+
+function openFile(){ $("fileInput").click(); }
+$("fileInput").onchange=(e)=>{
+  const f=e.target.files[0]; if(!f) return;
+  const r=new FileReader();
+  r.onload=()=>{ $("input").value=r.result; if(f.name.endsWith(".yaml")||f.name.endsWith(".yml")) $("inputFormat").value="yaml"; else $("inputFormat").value="json"; process(); };
+  r.readAsText(f); e.target.value="";
+};
+
+// JSONPath (simplified)
+function jsonPath(obj, path){
+  if(!path || path==="$") return [obj];
+  const tokens = path.split(".").filter(Boolean);
+  let current = [obj];
+  for(const tok of tokens){
+    const next = [];
+    if(tok==="*"){
+      current.forEach(c=>{ if(Array.isArray(c)) next.push(...c); else if(c && typeof c==="object") next.push(...Object.values(c)); });
+    }else if(tok===".."){
+      // Recursive descent - simplified
+      current.forEach(c=>{ collectAll(c, next); });
+    }else if(tok.includes("[") && tok.endsWith("]")){
+      const key = tok.slice(0, tok.indexOf("["));
+      const idx = tok.slice(tok.indexOf("[")+1, -1);
+      current.forEach(c=>{
+        const target = key ? c[key] : c;
+        if(Array.isArray(target)){
+          if(idx==="*") next.push(...target);
+          else next.push(target[parseInt(idx)]);
+        }
+      });
+    }else{
+      current.forEach(c=>{ if(c && typeof c==="object" && tok in c) next.push(c[tok]); });
+    }
+    current = next.filter(x=>x!==undefined);
+    if(!current.length) break;
+  }
+  return current;
+}
+
+function collectAll(obj, arr){
+  arr.push(obj);
+  if(obj && typeof obj==="object"){
+    if(Array.isArray(obj)) obj.forEach(v=>collectAll(v,arr));
+    else Object.values(obj).forEach(v=>collectAll(v,arr));
+  }
+}
+
+$("queryBtn").onclick=()=>{
+  if(!lastParsed){ $("queryResults").textContent="No valid data to query"; return; }
+  const results = jsonPath(lastParsed, $("query").value);
+  if(results.length===0){ $("queryResults").textContent="No matches"; return; }
+  $("queryResults").innerHTML = results.map((r,i)=>`<div style="margin:.4rem 0;padding:.4rem;background:var(--inset);border-radius:4px"><div class="dim">Result ${i+1}</div>${syntaxHighlight(escapeHtml(JSON.stringify(r,null,2)))}</div>`).join("");
+};
+
+$("input").addEventListener("input", process);
+$("inputFormat").onchange=process;
+$("outputFormat").onchange=()=>{ if(lastParsed) process(); };
+$("formatBtn").onclick=formatConvert;
+$("minifyBtn").onclick=minify;
+$("validateBtn").onclick=validate;
+$("copyBtn").onclick=copyOut;
+$("downloadBtn").onclick=download;
+$("clearBtn").onclick=clearAll;
+$("openBtn").onclick=openFile;
+
+process();
+</script>
+</body>
+</html>
