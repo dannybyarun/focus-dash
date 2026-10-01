@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Timezone Clocks — PocketOS</title>
+<link rel="stylesheet" href="/assets/style.css">
+<style>
+  .clock-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px}
+  .clock{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:16px;transition:transform .15s,box-shadow .15s}
+  .clock:hover{transform:translateY(-2px);box-shadow:var(--shadow)}
+  .clock.pinned{outline:2px solid var(--accent)}
+  .clock-name{font-weight:600;font-size:.9rem;color:var(--muted);margin-bottom:4px;text-transform:uppercase;letter-spacing:.05em}
+  .clock-time{font-family:'JetBrains Mono',monospace;font-size:1.8rem;font-weight:700;color:var(--fg);line-height:1.2}
+  .clock-zone{font-size:.75rem;color:var(--muted);margin-top:4px;font-family:'JetBrains Mono',monospace}
+  .clock-offset{font-size:.7rem;color:var(--accent);margin-top:2px}
+  .clock-actions{display:flex;gap:8px;margin-top:12px;padding-top:12px;border-top:1px solid var(--border)}
+  .clock-actions button{flex:1;font-size:.7rem;padding:6px 0;border-radius:6px;border:1px solid var(--border);background:var(--bg);color:var(--fg);cursor:pointer;transition:background .15s}
+  .clock-actions button:hover{background:var(--card)}
+  .clock-actions button.danger{color:#ff6b6b;border-color:#ff6b6b}
+  .add-form{display:flex;gap:8px;margin-bottom:20px;flex-wrap:wrap}
+  .add-form input,.add-form select{flex:1;min-width:140px;padding:10px 12px;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--fg);font-family:inherit}
+  .add-form button{padding:10px 16px;border-radius:8px;border:none;background:var(--accent);color:#000;font-weight:600;cursor:pointer}
+  .add-form button:hover{filter:brightness(1.1)}
+  .share-url{font-family:'JetBrains Mono',monospace;font-size:.75rem;color:var(--muted);word-break:break-all;background:var(--card);padding:8px;border-radius:6px;border:1px solid var(--border);margin-top:12px}
+  .empty-state{text-align:center;padding:40px;color:var(--muted)}
+  .empty-state svg{width:48px;height:48px;margin-bottom:12px;opacity:.5}
+  @media (max-width:480px){.clock-time{font-size:1.4rem}}
+</style>
+</head>
+<body>
+<header class="app-header">
+  <a href="/apps.html" class="back-link">← PocketOS</a>
+  <h1>Timezone Clocks</h1>
+  <div class="header-actions">
+    <button id="shareBtn" class="icon-btn" title="Copy share link" aria-label="Copy share link">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></svg>
+    </button>
+    <button id="themeToggle" class="icon-btn" aria-label="Toggle theme"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="sun"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="moon" style="display:none"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg></button>
+  </div>
+</header>
+
+<main class="app-main">
+  <div class="add-form">
+    <input id="cityInput" type="text" placeholder="City name (e.g., Tokyo, New York)" aria-label="City name">
+    <select id="tzSelect" aria-label="Timezone">
+      <option value="">-- or pick timezone --</option>
+    </select>
+    <button id="addBtn">Add</button>
+  </div>
+
+  <div id="clockGrid" class="clock-grid" role="list" aria-label="World clocks"></div>
+
+  <div id="shareBox" class="share-url" hidden>Share URL: <span id="shareUrl"></span></div>
+</main>
+
+<script>
+const STORAGE_KEY = 'pocketos_timezones_v1';
+const DEFAULT_CITIES = [
+  {name:'UTC', tz:'UTC'},
+  {name:'New York', tz:'America/New_York'},
+  {name:'London', tz:'Europe/London'},
+  {name:'Tokyo', tz:'Asia/Tokyo'},
+  {name:'Sydney', tz:'Australia/Sydney'}
+];
+
+let clocks = [];
+let updateTimer = null;
+
+const grid = document.getElementById('clockGrid');
+const cityInput = document.getElementById('cityInput');
+const tzSelect = document.getElementById('tzSelect');
+const addBtn = document.getElementById('addBtn');
+const shareBtn = document.getElementById('shareBtn');
+const shareBox = document.getElementById('shareBox');
+const shareUrlEl = document.getElementById('shareUrl');
+const themeToggle = document.getElementById('themeToggle');
+
+function loadClocks() {
+  try {
+    const stored = localStorage.getItem(STORAGE_KEY);
+    if (stored) {
+      clocks = JSON.parse(stored);
+    } else {
+      clocks = DEFAULT_CITIES.map(c => ({...c, id: crypto.randomUUID(), pinned: false}));
+      saveClocks();
+    }
+  } catch { clocks = DEFAULT_CITIES.map(c => ({...c, id: crypto.randomUUID(), pinned: false})); }
+  populateTZSelect();
+  render();
+  startTicker();
+}
+
+function saveClocks() {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(clocks));
+  updateShareURL();
+}
+
+function populateTZSelect() {
+  try {
+    const zones = Intl.supportedValuesOf('timeZone');
+    tzSelect.innerHTML = '<option value="">-- or pick timezone --</option>' +
+      zones.map(z => '<option value="' + z + '">' + z + '</option>').join('');
+  } catch {
+    tzSelect.innerHTML = '<option value="">-- timezone API unavailable --</option>';
+  }
+}
+
+function formatTime(date, tz) {
+  return new Intl.DateTimeFormat('en-US', {
+    hour: '2-digit', minute: '2-digit', second: '2-digit',
+    hour12: false, timeZone: tz
+  }).format(date);
+}
+
+function formatDate(date, tz) {
+  return new Intl.DateTimeFormat('en-US', {
+    weekday: 'short', month: 'short', day: 'numeric', timeZone: tz
+  }).format(date);
+}
+
+function getOffsetStr(tz) {
+  const now = new Date();
+  const fmt = new Intl.DateTimeFormat('en-US', {timeZone: tz, timeZoneName: 'shortOffset'});
+  const parts = fmt.formatToParts(now);
+  const tzPart = parts.find(p => p.type === 'timeZoneName');
+  return tzPart ? tzPart.value : '';
+}
+
+function getCityName(tz) {
+  return tz.split('/').pop().replace(/_/g, ' ') || tz;
+}
+
+function createClockEl(clock, idx) {
+  const now = new Date();
+  const time = formatTime(now, clock.tz);
+  const date = formatDate(now, clock.tz);
+  const offset = getOffsetStr(clock.tz);
+  const isPinned = clock.pinned;
+
+  const div = document.createElement('div');
+  div.className = 'clock' + (isPinned ? ' pinned' : '');
+  div.role = 'listitem';
+  div.dataset.id = clock.id;
+  div.innerHTML = '\n    <div class="clock-name">' + clock.name + '</div>\n    <div class="clock-time" data-tz="' + clock.tz + '">' + time + '</div>\n    <div class="clock-zone">' + date + '</div>\n    <div class="clock-offset">' + offset + '</div>\n    <div class="clock-actions">\n      <button class="pinBtn" aria-label="' + (isPinned ? 'Unpin' : 'Pin') + '">' + (isPinned ? 'Unpin' : 'Pin') + '</button>\n      <button class="danger removeBtn" aria-label="Remove">Remove</button>\n    </div>\n  ';
+  div.querySelector('.pinBtn').addEventListener('click', () => togglePin(clock.id));
+  div.querySelector('.removeBtn').addEventListener('click', () => removeClock(clock.id));
+  return div;
+}
+
+function render() {
+  grid.innerHTML = '';
+  if (clocks.length === 0) {
+    grid.innerHTML = '\n      <div class="empty-state" style="grid-column:1/-1">\n        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>\n        <p>No clocks yet. Add a city or timezone above.</p>\n      </div>';
+    return;
+  }
+  clocks.forEach((c, i) => grid.appendChild(createClockEl(c, i)));
+}
+
+function updateAllClocks() {
+  const now = new Date();
+  document.querySelectorAll('.clock-time').forEach(el => {
+    const tz = el.dataset.tz;
+    el.textContent = formatTime(now, tz);
+  });
+  document.querySelectorAll('.clock-zone').forEach((el, i) => {
+    if (clocks[i]) el.textContent = formatDate(now, clocks[i].tz);
+  });
+  document.querySelectorAll('.clock-offset').forEach((el, i) => {
+    if (clocks[i]) el.textContent = getOffsetStr(clocks[i].tz);
+  });
+}
+
+function startTicker() {
+  if (updateTimer) clearInterval(updateTimer);
+  updateTimer = setInterval(updateAllClocks, 1000);
+}
+
+function addClock(name, tz) {
+  if (!tz) return;
+  clocks.push({id: crypto.randomUUID(), name: name || getCityName(tz), tz, pinned: false});
+  saveClocks();
+  render();
+  cityInput.value = '';
+  tzSelect.value = '';
+}
+
+function removeClock(id) {
+  clocks = clocks.filter(c => c.id !== id);
+  saveClocks();
+  render();
+}
+
+function togglePin(id) {
+  const clock = clocks.find(c => c.id === id);
+  if (clock) { clock.pinned = !clock.pinned; saveClocks(); render(); }
+}
+
+function updateShareURL() {
+  const params = new URLSearchParams();
+  clocks.forEach(c => { params.append('tz', c.tz); params.append('name', c.name); });
+  const url = location.origin + location.pathname + '?' + params.toString();
+  shareUrlEl.textContent = url;
+}
+
+shareBtn.addEventListener('click', async () => {
+  updateShareURL();
+  try {
+    await navigator.clipboard.writeText(shareUrlEl.textContent);
+    shareBtn.innerHTML = '\u2713 Copied!';
+    setTimeout(() => shareBtn.innerHTML = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></svg>', 1500);
+  } catch { shareBox.hidden = false; }
+});
+
+addBtn.addEventListener('click', () => {
+  const tz = tzSelect.value || cityInput.value;
+  const name = cityInput.value || null;
+  addClock(name, tz);
+});
+
+cityInput.addEventListener('keydown', e => { if (e.key === 'Enter') addBtn.click(); });
+
+function applyShareParams() {
+  const params = new URLSearchParams(location.search);
+  const tzs = params.getAll('tz');
+  const names = params.getAll('name');
+  if (tzs.length) {
+    clocks = tzs.map((tz, i) => ({
+      id: crypto.randomUUID(),
+      name: names[i] || getCityName(tz),
+      tz,
+      pinned: false
+    }));
+    saveClocks();
+    render();
+  }
+}
+
+themeToggle.addEventListener('click', () => {
+  document.documentElement.classList.toggle('dark');
+  localStorage.setItem('theme', document.documentElement.classList.contains('dark') ? 'dark' : 'light');
+  themeToggle.querySelector('.sun').style.display = document.documentElement.classList.contains('dark') ? 'none' : 'block';
+  themeToggle.querySelector('.moon').style.display = document.documentElement.classList.contains('dark') ? 'block' : 'none';
+});
+
+if (localStorage.getItem('theme') === 'dark' || (!localStorage.getItem('theme') && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+  document.documentElement.classList.add('dark');
+  themeToggle.querySelector('.sun').style.display = 'none';
+  themeToggle.querySelector('.moon').style.display = 'block';
+}
+
+loadClocks();
+applyShareParams();
+</script>
+</body>
+</html>

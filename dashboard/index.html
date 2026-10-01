@@ -1134,6 +1134,10 @@ Object.entries(cards).forEach(([id, c]) => {
 });
 setInterval(tick, 1000);
 tick();
+
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('/sw.js').catch(() => {});
+}
 </script>
 </body>
 </html>

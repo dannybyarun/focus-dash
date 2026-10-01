@@ -64,6 +64,14 @@
     <span class="ic">🧾</span><span class="nm">Split</span>
     <span class="ds">Expense splitter — who owes whom</span>
   </a>
+  <a class="app-tile" href="/timezones/">
+    <span class="ic">🌍</span><span class="nm">Timezones</span>
+    <span class="ds">World clocks with shareable links</span>
+  </a>
+  <a class="app-tile" href="/regex/">
+    <span class="ic">🔍</span><span class="nm">Regex</span>
+    <span class="ds">Test, highlight, replace, cheatsheet</span>
+  </a>
 
   <!-- Finance & Fun -->
   <a class="app-tile" href="/crypto/">
@@ -82,5 +90,10 @@
   </a>
 </main>
 <footer>Built with zero dependencies · all data stays local.</footer>
+<script>
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('/sw.js').catch(() => {});
+}
+</script>
 </body>
 </html>
